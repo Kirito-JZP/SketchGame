@@ -5,7 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import { CLIPS_DIR, getCategoryStatus } from './clips.js';
+import { CLIPS_DIR, hasAnyClips } from './clips.js';
 import {
   PHASES,
   addPlayer,
@@ -17,6 +17,7 @@ import {
   removePlayer,
   selectRole,
   startGame,
+  proceedFromLockedRoleSelection,
   startNextRound,
   submitContinueVote,
   submitGuess,
@@ -37,29 +38,28 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use('/clips', express.static(CLIPS_DIR));
 
-app.get('/api/categories', (_req, res) => {
-  res.json(getCategoryStatus());
+app.get('/api/status', (_req, res) => {
+  res.json({ hasClips: hasAnyClips() });
 });
 
 const rooms = new Map();
 
-function findWaitingRoomForCategory(categoryId) {
+function findOpenWaitingRoom() {
   for (const [, room] of rooms) {
-    if (room.categoryId === categoryId && room.phase === PHASES.WAITING) {
+    if (room.phase === PHASES.WAITING && !room.isInviteOnly) {
       return room;
     }
   }
   return null;
 }
 
-function broadcastRoom(roomId) {
+async function broadcastRoom(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
-  room.players.forEach((p) => {
-    const playerSocket = io.sockets.sockets.get(p.id);
-    if (playerSocket) {
-      playerSocket.emit('room:update', getPublicRoomState(room, p.id));
-    }
+
+  const sockets = await io.in(roomId).fetchSockets();
+  sockets.forEach((socket) => {
+    socket.emit('room:update', getPublicRoomState(room, socket.id));
   });
 }
 
@@ -95,27 +95,37 @@ io.on('connection', (socket) => {
   let currentRoomId = null;
   let playerId = socket.id;
 
-  socket.on('room:join', ({ roomId, categoryId, categoryFolder, playerName }, cb) => {
+  socket.on('room:join', async ({ roomId, playerName, createNew }, cb) => {
     let room;
+
+    if (currentRoomId && currentRoomId !== roomId) {
+      socket.leave(currentRoomId);
+    }
 
     if (roomId && rooms.has(roomId)) {
       room = rooms.get(roomId);
       currentRoomId = roomId;
-    } else if (categoryId && categoryFolder) {
-      const existing = findWaitingRoomForCategory(categoryId);
+    } else if (createNew) {
+      const id = uuidv4().slice(0, 8).toUpperCase();
+      room = createRoom(playerId, true);
+      room.id = id;
+      rooms.set(id, room);
+      currentRoomId = id;
+    } else if (roomId) {
+      cb?.({ error: 'Room not found' });
+      return;
+    } else {
+      const existing = findOpenWaitingRoom();
       if (existing) {
         room = existing;
         currentRoomId = existing.id;
       } else {
         const id = uuidv4().slice(0, 8).toUpperCase();
-        room = createRoom(categoryId, categoryFolder, playerId);
+        room = createRoom(playerId, false);
         room.id = id;
         rooms.set(id, room);
         currentRoomId = id;
       }
-    } else {
-      cb?.({ error: 'Invalid room' });
-      return;
     }
 
     socket.join(currentRoomId);
@@ -126,7 +136,7 @@ io.on('connection', (socket) => {
     }
 
     cb?.({ roomId: currentRoomId, state: getPublicRoomState(room, playerId) });
-    broadcastRoom(currentRoomId);
+    await broadcastRoom(currentRoomId);
   });
 
   socket.on('room:start', (_data, cb) => {
@@ -169,21 +179,23 @@ io.on('connection', (socket) => {
     cb?.({ success: ok });
   });
 
-  socket.on('drawing:live', ({ data }) => {
+  socket.on('drawing:live', ({ data, labels }) => {
     const room = rooms.get(currentRoomId);
     if (!room) return;
-    updateLiveDrawing(room, playerId, data);
+    updateLiveDrawing(room, playerId, data, labels || []);
+    const payload = { data, labels: labels || [], sketchIndex: room.currentSketchIndex };
     room.players
       .filter((p) => p.role === 'guesser')
       .forEach((p) => {
-        io.to(p.id).emit('drawing:live', { data, sketchIndex: room.currentSketchIndex });
+        const guesserSocket = io.sockets.sockets.get(p.id);
+        if (guesserSocket) guesserSocket.emit('drawing:live', payload);
       });
   });
 
-  socket.on('sketch:submit', ({ data }, cb) => {
+  socket.on('sketch:submit', ({ data, labels }, cb) => {
     const room = rooms.get(currentRoomId);
     if (!room) return;
-    const result = submitSketch(room, playerId, data);
+    const result = submitSketch(room, playerId, data, labels || []);
     if (result) broadcastRoom(currentRoomId);
     cb?.({ success: !!result, result });
   });
@@ -226,9 +238,22 @@ io.on('connection', (socket) => {
       cb?.({ error: 'Need at least 2 players to continue' });
       return;
     }
-    const ok = startNextRound(room);
-    if (ok) broadcastRoom(currentRoomId);
-    cb?.({ success: ok });
+    const result = startNextRound(room);
+    if (!result) {
+      cb?.({ success: false });
+      return;
+    }
+    broadcastRoom(currentRoomId);
+    if (result === 'locked') {
+      setTimeout(() => {
+        const r = rooms.get(currentRoomId);
+        if (!r) return;
+        if (proceedFromLockedRoleSelection(r)) {
+          broadcastRoom(currentRoomId);
+        }
+      }, 3000);
+    }
+    cb?.({ success: true });
   });
 
   socket.on('disconnect', () => {

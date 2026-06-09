@@ -30,7 +30,7 @@ export default function Game() {
   const isGuesser = roomState.myRole === 'guesser';
 
   if (phase === 'waiting') {
-    navigate(`/waiting/${roomState.categoryId}`, { state: { roomId: roomState.id } });
+    navigate('/waiting', { state: { roomId: roomState.id } });
     return null;
   }
 
@@ -60,8 +60,8 @@ export default function Game() {
     return (
       <DrawingPhase
         state={roomState}
-        onLiveUpdate={(data) => emit('drawing:live', { data })}
-        onSubmit={(data) => emit('sketch:submit', { data })}
+        onLiveUpdate={(data, labels) => emit('drawing:live', { data, labels })}
+        onSubmit={(data, labels) => emit('sketch:submit', { data, labels })}
       />
     );
   }
@@ -96,7 +96,6 @@ export default function Game() {
       <ContinueVote
         state={roomState}
         onVote={(vote) => emit('round:continue-vote', { vote })}
-        onStartNext={() => emit('round:start-next')}
       />
     );
   }

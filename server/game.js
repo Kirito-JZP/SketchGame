@@ -1,4 +1,4 @@
-import { pickGuessOptions, pickRandomClip } from './clips.js';
+import { pickGuessOptions, pickRandomClipFromAnyCategory } from './clips.js';
 
 export const PHASES = {
   WAITING: 'waiting',
@@ -16,11 +16,12 @@ export const PHASES = {
 const SESSION_TIME = 180;
 const SKETCH_TIME = 60;
 
-export function createRoom(categoryId, categoryFolder, hostId) {
+export function createRoom(hostId, isInviteOnly = false) {
   return {
     id: null,
-    categoryId,
-    categoryFolder,
+    categoryId: null,
+    categoryFolder: null,
+    isInviteOnly,
     hostId,
     phase: PHASES.WAITING,
     players: [],
@@ -28,7 +29,11 @@ export function createRoom(categoryId, categoryFolder, hostId) {
     clip: null,
     guessOptions: [],
     selectedKeyframes: [],
-    sketches: [{ data: null, ratings: [], redrawCount: 0 }, { data: null, ratings: [], redrawCount: 0 }, { data: null, ratings: [], redrawCount: 0 }],
+    sketches: [
+      { data: null, labels: [], ratings: [], redrawCount: 0 },
+      { data: null, labels: [], ratings: [], redrawCount: 0 },
+      { data: null, labels: [], ratings: [], redrawCount: 0 },
+    ],
     currentSketchIndex: 0,
     drawerId: null,
     roleSelectionIndex: 0,
@@ -42,11 +47,16 @@ export function createRoom(categoryId, categoryFolder, hostId) {
     roundScores: null,
     redrawKeyframes: [],
     liveDrawing: null,
+    rolesLocked: false,
   };
 }
 
 export function addPlayer(room, playerId, playerName) {
-  if (room.players.find((p) => p.id === playerId)) return room.players.find((p) => p.id === playerId);
+  const existing = room.players.find((p) => p.id === playerId);
+  if (existing) {
+    if (playerName) existing.name = playerName;
+    return existing;
+  }
 
   const player = {
     id: playerId,
@@ -106,11 +116,12 @@ export function getPublicRoomState(room, playerId) {
       room.phase === PHASES.GUESSING ||
       room.phase === PHASES.DRAWING ||
       room.phase === PHASES.ROUND_RESULTS
-        ? room.guessOptions.map((o) => ({ id: o.id, title: o.title, thumbnail: o.thumbnail }))
+        ? room.guessOptions.map((o) => ({ id: o.id, title: o.title, videoUrl: o.videoUrl }))
         : [],
     selectedKeyframes: isDrawer ? room.selectedKeyframes : room.selectedKeyframes.map((_, i) => i),
     sketches: room.sketches.map((s, i) => ({
       data: s.data,
+      labels: s.labels || [],
       ratings: room.phase === PHASES.ROUND_RESULTS ? s.ratings : undefined,
       averageRating: room.phase === PHASES.ROUND_RESULTS ? getAverageRating(s.ratings) : undefined,
       redrawCount: s.redrawCount,
@@ -142,7 +153,17 @@ export function getPublicRoomState(room, playerId) {
     myRole: me?.role,
     myId: playerId,
     isHost: room.hostId === playerId,
-    canSelectRole: room.phase === PHASES.ROLE_SELECTION && room.roleSelectionIndex === me?.joinOrder,
+    rolesLocked: room.rolesLocked || false,
+    canSelectRole:
+      !room.rolesLocked &&
+      room.phase === PHASES.ROLE_SELECTION &&
+      room.roleSelectionIndex === me?.joinOrder,
+    mustBeDrawer:
+      !room.rolesLocked &&
+      room.phase === PHASES.ROLE_SELECTION &&
+      !room.drawerChosen &&
+      room.players.length - room.roleSelectionIndex === 1 &&
+      me?.joinOrder === room.roleSelectionIndex,
     continueVotes: room.phase === PHASES.CONTINUE_VOTE
       ? {
           continue: room.players.filter((p) => p.continueVote === true).length,
@@ -162,11 +183,28 @@ export function startGame(room) {
   room.phase = PHASES.ROLE_SELECTION;
   room.roleSelectionIndex = 0;
   room.drawerChosen = false;
+  room.rolesLocked = false;
   room.players.forEach((p) => {
     p.role = null;
     p.hasGuessed = false;
     p.hasRated = false;
   });
+}
+
+function assignRotatedRoles(room) {
+  const sorted = [...room.players].sort((a, b) => a.joinOrder - b.joinOrder);
+  const prevDrawer = room.players.find((p) => p.id === room.drawerId);
+  const nextJoinOrder = prevDrawer
+    ? (prevDrawer.joinOrder + 1) % room.players.length
+    : 0;
+  const newDrawer = sorted.find((p) => p.joinOrder === nextJoinOrder) || sorted[0];
+
+  room.players.forEach((p) => {
+    p.role = p.id === newDrawer.id ? 'drawer' : 'guesser';
+  });
+  room.drawerId = newDrawer.id;
+  room.drawerChosen = true;
+  room.roleSelectionIndex = room.players.length;
 }
 
 export function selectRole(room, playerId, role) {
@@ -186,6 +224,9 @@ export function selectRole(room, playerId, role) {
   }
 
   if (role === 'guesser') {
+    const remainingAfter = room.players.length - room.roleSelectionIndex - 1;
+    if (!room.drawerChosen && remainingAfter === 0) return false;
+
     player.role = 'guesser';
     room.roleSelectionIndex++;
     if (!room.drawerChosen && room.roleSelectionIndex >= room.players.length) {
@@ -207,13 +248,21 @@ export function selectRole(room, playerId, role) {
 
 function beginRound(room) {
   room.round++;
-  room.clip = pickRandomClip(room.categoryFolder);
-  room.guessOptions = room.clip ? pickGuessOptions(room.categoryFolder, room.clip.id) : [];
+  const picked = pickRandomClipFromAnyCategory();
+  if (picked) {
+    room.clip = picked.clip;
+    room.categoryFolder = picked.categoryFolder;
+    room.categoryId = picked.categoryId;
+    room.guessOptions = pickGuessOptions(picked.categoryFolder, picked.clip.id);
+  } else {
+    room.clip = null;
+    room.guessOptions = [];
+  }
   room.selectedKeyframes = [];
   room.sketches = [
-    { data: null, ratings: [], redrawCount: 0 },
-    { data: null, ratings: [], redrawCount: 0 },
-    { data: null, ratings: [], redrawCount: 0 },
+    { data: null, labels: [], ratings: [], redrawCount: 0 },
+    { data: null, labels: [], ratings: [], redrawCount: 0 },
+    { data: null, labels: [], ratings: [], redrawCount: 0 },
   ];
   room.currentSketchIndex = 0;
   room.guesses = {};
@@ -240,10 +289,11 @@ export function submitKeyframes(room, playerId, indices) {
   return true;
 }
 
-export function submitSketch(room, playerId, sketchData) {
+export function submitSketch(room, playerId, sketchData, labels = []) {
   if (room.drawerId !== playerId || (room.phase !== PHASES.DRAWING && room.phase !== PHASES.REDRAW)) return false;
 
   room.sketches[room.currentSketchIndex].data = sketchData;
+  room.sketches[room.currentSketchIndex].labels = labels;
   room.liveDrawing = null;
 
   if (room.currentSketchIndex < 2) {
@@ -257,9 +307,9 @@ export function submitSketch(room, playerId, sketchData) {
   return 'guessing';
 }
 
-export function updateLiveDrawing(room, playerId, drawingData) {
+export function updateLiveDrawing(room, playerId, drawingData, labels = []) {
   if (room.drawerId !== playerId) return;
-  room.liveDrawing = drawingData;
+  room.liveDrawing = { data: drawingData, labels };
 }
 
 export function submitGuess(room, playerId, guessId) {
@@ -321,6 +371,7 @@ function evaluateRound(room) {
     room.sketchTimeLeft = SKETCH_TIME;
     room.sketches.forEach((s) => {
       s.data = null;
+      s.labels = [];
       s.ratings = [];
       s.redrawCount++;
     });
@@ -342,6 +393,7 @@ function evaluateRound(room) {
       room.sketchTimeLeft = SKETCH_TIME;
       needsRedraw.forEach((f) => {
         room.sketches[f.index].data = null;
+        room.sketches[f.index].labels = [];
         room.sketches[f.index].ratings = [];
         room.sketches[f.index].redrawCount++;
       });
@@ -425,8 +477,15 @@ export function advanceFromWatch(room, playerId) {
 export function submitContinueVote(room, playerId, vote) {
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return false;
-  player.continueVote = vote;
-  room.continueVotes[playerId] = vote;
+
+  if (vote === false) {
+    removePlayer(room, playerId);
+    delete room.continueVotes[playerId];
+    return true;
+  }
+
+  player.continueVote = true;
+  room.continueVotes[playerId] = true;
   return true;
 }
 
@@ -434,16 +493,34 @@ export function startNextRound(room) {
   const continueCount = room.players.filter((p) => p.continueVote === true).length;
   if (continueCount < 2) return false;
 
-  room.phase = PHASES.ROLE_SELECTION;
-  room.roleSelectionIndex = 0;
-  room.drawerChosen = false;
   room.continueVotes = {};
   room.players.forEach((p) => {
-    p.role = null;
     p.continueVote = null;
     p.hasGuessed = false;
     p.hasRated = false;
   });
+
+  room.phase = PHASES.ROLE_SELECTION;
+
+  if (room.round >= 1) {
+    assignRotatedRoles(room);
+    room.rolesLocked = true;
+    return 'locked';
+  }
+
+  room.roleSelectionIndex = 0;
+  room.drawerChosen = false;
+  room.rolesLocked = false;
+  room.players.forEach((p) => {
+    p.role = null;
+  });
+  return 'manual';
+}
+
+export function proceedFromLockedRoleSelection(room) {
+  if (room.phase !== PHASES.ROLE_SELECTION || !room.rolesLocked) return false;
+  room.rolesLocked = false;
+  beginRound(room);
   return true;
 }
 

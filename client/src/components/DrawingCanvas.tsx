@@ -1,31 +1,50 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { SketchLabel } from '../types';
+import { KEYFRAME_LABEL_COLORS, exportCanvasWithLabels } from '../utils/sketchLabels';
 
 const COLORS = ['#000000', '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#ffffff'];
+const KEYWORDS_PER_KEYFRAME = 3;
 
 interface Props {
   keyframeIndex: number;
   allKeyframes: number[];
   allKeyframeUrls: string[];
+  totalKeyframes: number;
+  videoUrl?: string;
   currentIndex: number;
-  onSubmit: (data: string) => void;
-  onLiveUpdate: (data: string) => void;
+  onSubmit: (data: string, labels: SketchLabel[]) => void;
+  onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
 }
 
 export default function DrawingCanvas({
   keyframeIndex,
   allKeyframes,
   allKeyframeUrls,
+  totalKeyframes,
+  videoUrl,
   currentIndex,
   onSubmit,
   onLiveUpdate,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hasDrawnRef = useRef(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState('#000000');
   const [lineWidth, setLineWidth] = useState(3);
   const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
   const [hasDrawn, setHasDrawn] = useState(false);
+  const [labels, setLabels] = useState<SketchLabel[]>([]);
+  const [keywordInputs, setKeywordInputs] = useState(['', '', '']);
+  const [confirmedSlots, setConfirmedSlots] = useState([false, false, false]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const lastPos = useRef({ x: 0, y: 0 });
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  const currentKeyframeUrl = allKeyframeUrls[keyframeIndex];
+  const allKeywordsConfirmed = confirmedSlots.every(Boolean);
+  const canFinish = hasDrawn && allKeywordsConfirmed;
 
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
@@ -33,14 +52,18 @@ export default function DrawingCanvas({
     return canvas.getContext('2d');
   }, []);
 
-  useEffect(() => {
+  const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+    if (width === 0 || height === 0) return;
+
+    canvas.width = width;
+    canvas.height = height;
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -61,10 +84,63 @@ export default function DrawingCanvas({
       ctx.stroke();
     }
 
+    hasDrawnRef.current = false;
     setHasDrawn(false);
-  }, [keyframeIndex, currentIndex]);
+    setLabels([]);
+    setKeywordInputs(['', '', '']);
+    setConfirmedSlots([false, false, false]);
+  }, []);
 
-  const getPos = (e: React.MouseEvent | React.TouchEvent) => {
+  const pushLiveUpdate = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0) return;
+    onLiveUpdate(canvas.toDataURL('image/png'), labels);
+  }, [labels, onLiveUpdate]);
+
+  useEffect(() => {
+    initCanvas();
+    const raf = requestAnimationFrame(() => {
+      if (canvasRef.current?.width === 0) initCanvas();
+    });
+
+    const canvas = canvasRef.current;
+    if (!canvas) return () => cancelAnimationFrame(raf);
+
+    const observer = new ResizeObserver(() => {
+      if (canvas.width === 0 && canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
+        initCanvas();
+      }
+    });
+    observer.observe(canvas);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [keyframeIndex, currentIndex, initCanvas]);
+
+  useEffect(() => {
+    pushLiveUpdate();
+  }, [labels, pushLiveUpdate]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl || totalKeyframes <= 0) return;
+
+    const frameNumber = keyframeIndex + 1;
+    const seekToFrame = () => {
+      if (!video.duration || Number.isNaN(video.duration)) return;
+      video.pause();
+      video.currentTime = (frameNumber / totalKeyframes) * video.duration;
+    };
+
+    if (video.readyState >= 1) {
+      seekToFrame();
+    } else {
+      video.addEventListener('loadedmetadata', seekToFrame, { once: true });
+    }
+  }, [keyframeIndex, videoUrl, totalKeyframes]);
+
+  const getCanvasPos = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
@@ -75,17 +151,23 @@ export default function DrawingCanvas({
     };
   };
 
+  const markDrawn = () => {
+    hasDrawnRef.current = true;
+    setHasDrawn(true);
+  };
+
   const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
+    if (draggingId) return;
     setIsDrawing(true);
-    lastPos.current = getPos(e);
+    lastPos.current = getCanvasPos(e);
   };
 
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing) return;
+    if (!isDrawing || draggingId) return;
     const ctx = getCtx();
     if (!ctx) return;
 
-    const pos = getPos(e);
+    const pos = getCanvasPos(e);
     ctx.beginPath();
     ctx.moveTo(lastPos.current.x, lastPos.current.y);
     ctx.lineTo(pos.x, pos.y);
@@ -96,54 +178,160 @@ export default function DrawingCanvas({
     ctx.stroke();
 
     lastPos.current = pos;
-    setHasDrawn(true);
-
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const data = canvas.toDataURL('image/png');
-      onLiveUpdate(data);
-    }
+    markDrawn();
+    pushLiveUpdate();
   };
 
   const endDraw = () => setIsDrawing(false);
 
+  const confirmKeyword = (slotIndex: number) => {
+    const text = keywordInputs[slotIndex].trim();
+    if (!text || confirmedSlots[slotIndex]) return;
+
+    const tagColor = KEYFRAME_LABEL_COLORS[slotIndex];
+
+    const newLabel: SketchLabel = {
+      id: `label-${Date.now()}-${slotIndex}`,
+      text,
+      x: 6 + slotIndex * 12,
+      y: 6 + slotIndex * 10,
+      color: tagColor,
+    };
+
+    setLabels((prev) => [...prev, newLabel]);
+    setConfirmedSlots((prev) => {
+      const next = [...prev];
+      next[slotIndex] = true;
+      return next;
+    });
+    setKeywordInputs((prev) => {
+      const next = [...prev];
+      next[slotIndex] = '';
+      return next;
+    });
+  };
+
+  const startLabelDrag = (e: React.MouseEvent, label: SketchLabel) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const rect = wrapper.getBoundingClientRect();
+    const labelX = (label.x / 100) * rect.width;
+    const labelY = (label.y / 100) * rect.height;
+
+    dragOffset.current = {
+      x: e.clientX - rect.left - labelX,
+      y: e.clientY - rect.top - labelY,
+    };
+    setDraggingId(label.id);
+  };
+
+  const moveLabelDrag = (e: React.MouseEvent) => {
+    if (!draggingId || !wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left - dragOffset.current.x) / rect.width) * 100;
+    const y = ((e.clientY - rect.top - dragOffset.current.y) / rect.height) * 100;
+
+    setLabels((prev) =>
+      prev.map((l) =>
+        l.id === draggingId
+          ? { ...l, x: Math.max(0, Math.min(92, x)), y: Math.max(0, Math.min(92, y)) }
+          : l
+      )
+    );
+  };
+
+  const endLabelDrag = () => {
+    if (draggingId) {
+      setDraggingId(null);
+      pushLiveUpdate();
+    }
+  };
+
   const handleSubmit = () => {
+    if (!canFinish) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    onSubmit(canvas.toDataURL('image/png'));
+    const data = exportCanvasWithLabels(canvas, labels);
+    onSubmit(data, labels);
   };
 
   return (
     <div className="drawing-layout">
-      <div className="keyframe-panel">
-        <h3>Current Keyframe</h3>
-        <div className="keyframe-stack">
-          {allKeyframes.map((kfIdx, i) => (
-            <div
-              key={kfIdx}
-              className={`keyframe-thumb ${i === currentIndex ? 'active' : 'inactive'}`}
-            >
-              {i <= currentIndex && <span className="kf-check">✓</span>}
-              <img src={allKeyframeUrls[kfIdx]} alt={`Keyframe ${kfIdx + 1}`} />
-              <span className="keyframe-label">Keyframe #{kfIdx + 1}</span>
-            </div>
-          ))}
+      <div className="reference-panel">
+        <h3>Reference Keyframes</h3>
+        <div className="reference-current">
+          <img src={currentKeyframeUrl} alt={`Keyframe ${keyframeIndex + 1}`} />
+          <span className="keyframe-label">Keyframe #{keyframeIndex + 1}</span>
         </div>
+        <div className="reference-thumbs">
+          <p className="reference-thumbs-title">Selected keyframes</p>
+          <div className="reference-thumbs-row">
+            {allKeyframes.map((kfIdx, i) => (
+              <div
+                key={kfIdx}
+                className={`reference-thumb ${i === currentIndex ? 'active' : ''} ${i < currentIndex ? 'done' : ''}`}
+              >
+                {i < currentIndex && <span className="kf-check">✓</span>}
+                <img src={allKeyframeUrls[kfIdx]} alt={`Keyframe ${kfIdx + 1}`} />
+                <span className="keyframe-label">#{kfIdx + 1}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {videoUrl && (
+          <div className="reference-video">
+            <p className="reference-thumbs-title">Original clip</p>
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              className="reference-clip-video"
+              controls
+              playsInline
+              preload="metadata"
+            />
+          </div>
+        )}
       </div>
 
-      <div className="canvas-panel">
-        <h3>Current Keyframe</h3>
-        <canvas
-          ref={canvasRef}
-          className="draw-canvas"
-          onMouseDown={startDraw}
-          onMouseMove={draw}
-          onMouseUp={endDraw}
-          onMouseLeave={endDraw}
-          onTouchStart={startDraw}
-          onTouchMove={draw}
-          onTouchEnd={endDraw}
-        />
+      <div className="draw-panel">
+        <h3>Drawing Canvas</h3>
+        <div
+          ref={wrapperRef}
+          className="canvas-wrapper"
+          onMouseMove={moveLabelDrag}
+          onMouseUp={endLabelDrag}
+          onMouseLeave={endLabelDrag}
+        >
+          <canvas
+            ref={canvasRef}
+            className="draw-canvas"
+            onMouseDown={startDraw}
+            onMouseMove={draw}
+            onMouseUp={endDraw}
+            onMouseLeave={endDraw}
+            onTouchStart={startDraw}
+            onTouchMove={draw}
+            onTouchEnd={endDraw}
+          />
+          {labels.map((label) => (
+            <span
+              key={label.id}
+              className={`sketch-label-tag draggable ${draggingId === label.id ? 'dragging' : ''}`}
+              style={{
+                left: `${label.x}%`,
+                top: `${label.y}%`,
+                backgroundColor: label.color,
+              }}
+              onMouseDown={(e) => startLabelDrag(e, label)}
+            >
+              {label.text}
+            </span>
+          ))}
+        </div>
+
         <div className="toolbar">
           <button className={`tool-btn ${tool === 'pen' ? 'active' : ''}`} onClick={() => setTool('pen')}>✏️</button>
           <button className={`tool-btn ${tool === 'eraser' ? 'active' : ''}`} onClick={() => setTool('eraser')}>🧽</button>
@@ -162,10 +350,63 @@ export default function DrawingCanvas({
             ))}
           </div>
         </div>
+
+        <div className="keyword-inputs-section">
+          <p className="keyword-section-title">
+            Keywords for keyframe #{keyframeIndex + 1} (3 keywords — confirm each, then drag onto sketch)
+          </p>
+          <div className="keyword-inputs-row">
+            {Array.from({ length: KEYWORDS_PER_KEYFRAME }, (_, slotIndex) => {
+              const tagColor = KEYFRAME_LABEL_COLORS[slotIndex];
+              const isConfirmed = confirmedSlots[slotIndex];
+              return (
+                <div
+                  key={slotIndex}
+                  className={`keyword-slot active ${isConfirmed ? 'confirmed' : ''}`}
+                  style={{ backgroundColor: tagColor }}
+                >
+                  <span className="keyword-slot-label">Keyword {slotIndex + 1}</span>
+                  {isConfirmed ? (
+                    <span className="keyword-confirmed-text">Placed on sketch — drag to reposition</span>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        className="keyword-slot-input"
+                        placeholder="Enter keyword"
+                        value={keywordInputs[slotIndex]}
+                        onChange={(e) => {
+                          const next = [...keywordInputs];
+                          next[slotIndex] = e.target.value;
+                          setKeywordInputs(next);
+                        }}
+                        onKeyDown={(e) => e.key === 'Enter' && confirmKeyword(slotIndex)}
+                      />
+                      <button
+                        className="keyword-slot-confirm"
+                        disabled={!keywordInputs[slotIndex].trim()}
+                        onClick={() => confirmKeyword(slotIndex)}
+                      >
+                        Confirm
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {!canFinish && (
+            <p className="keyword-hint">
+              {!hasDrawn && 'Draw on the canvas. '}
+              {!allKeywordsConfirmed && 'Confirm all 3 keywords to continue.'}
+            </p>
+          )}
+        </div>
+
         <div className="page-footer">
           <button
-            className={`btn-primary ${hasDrawn ? '' : 'btn-disabled'}`}
-            disabled={!hasDrawn}
+            className={`btn-primary ${canFinish ? '' : 'btn-disabled'}`}
+            disabled={!canFinish}
             onClick={handleSubmit}
           >
             Finish Drawing, Next

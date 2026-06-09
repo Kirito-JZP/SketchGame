@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { RoomState } from '../types';
+import type { LiveDrawing, RoomState } from '../types';
 
 interface SocketContextValue {
   connected: boolean;
   roomState: RoomState | null;
-  liveDrawing: { data: string; sketchIndex: number } | null;
-  joinRoom: (params: { roomId?: string; categoryId?: string; categoryFolder?: string; playerName?: string }) => Promise<{ roomId: string; state: RoomState }>;
+  liveDrawing: LiveDrawing | null;
+  joinRoom: (params: { roomId?: string; playerName?: string; createNew?: boolean }) => Promise<{ roomId: string; state: RoomState }>;
   emit: (event: string, data?: unknown) => Promise<{ success?: boolean; error?: string; result?: string }>;
 }
 
@@ -16,7 +16,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
-  const [liveDrawing, setLiveDrawing] = useState<{ data: string; sketchIndex: number } | null>(null);
+  const [liveDrawing, setLiveDrawing] = useState<LiveDrawing | null>(null);
 
   useEffect(() => {
     const socket = io('/', { transports: ['websocket', 'polling'] });
@@ -25,7 +25,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     socket.on('room:update', (state: RoomState) => setRoomState(state));
-    socket.on('drawing:live', (data: { data: string; sketchIndex: number }) => setLiveDrawing(data));
+    socket.on('drawing:live', (data: LiveDrawing) => setLiveDrawing(data));
 
     return () => {
       socket.disconnect();
@@ -33,7 +33,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const joinRoom = useCallback(
-    (params: { roomId?: string; categoryId?: string; categoryFolder?: string; playerName?: string }) =>
+    (params: { roomId?: string; playerName?: string; createNew?: boolean }) =>
       new Promise<{ roomId: string; state: RoomState }>((resolve, reject) => {
         socketRef.current?.emit('room:join', params, (res: { roomId?: string; state?: RoomState; error?: string }) => {
           if (res.error) reject(new Error(res.error));

@@ -85,6 +85,23 @@ export function pickRandomClip(categoryFolder, excludeId = null) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+export function pickRandomClipFromAnyCategory(excludeId = null) {
+  const all = [];
+  for (const cat of CATEGORIES) {
+    const clips = getClipsForCategory(cat.folder);
+    clips.forEach((clip) => {
+      all.push({ clip, categoryFolder: cat.folder, categoryId: cat.id });
+    });
+  }
+  const pool = excludeId ? all.filter((entry) => entry.clip.id !== excludeId) : all;
+  if (pool.length === 0) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+export function hasAnyClips() {
+  return CATEGORIES.some((cat) => getClipsForCategory(cat.folder).length > 0);
+}
+
 export function pickGuessOptions(categoryFolder, correctClipId) {
   const clips = getClipsForCategory(categoryFolder);
   const correct = clips.find((c) => c.id === correctClipId);
@@ -95,8 +112,8 @@ export function pickGuessOptions(categoryFolder, correctClipId) {
   const wrongOptions = shuffled.slice(0, 3);
 
   const options = [
-    { id: correct.id, title: correct.title, thumbnail: correct.thumbnail, isCorrect: true },
-    ...wrongOptions.map((c) => ({ id: c.id, title: c.title, thumbnail: c.thumbnail, isCorrect: false })),
+    { id: correct.id, title: correct.title, videoUrl: correct.videoUrl, isCorrect: true },
+    ...wrongOptions.map((c) => ({ id: c.id, title: c.title, videoUrl: c.videoUrl, isCorrect: false })),
   ];
 
   return options.sort(() => Math.random() - 0.5);

@@ -19,7 +19,7 @@ npm run dev
 
 ## Game Flow
 
-1. **Studio Main** — Pick a category module (Action, Heavy Composition, etc.)
+1. **Home** — Start game or share an invite link with friends
 2. **Waiting Room** — Host starts when 2+ players join
 3. **Role Selection** — Choose Drawer or Guesser
 4. **Drawing Phase** — Drawer watches clip, picks 3 keyframes, sketches each

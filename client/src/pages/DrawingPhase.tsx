@@ -1,11 +1,11 @@
 import GameHeader from '../components/GameHeader';
 import DrawingCanvas from '../components/DrawingCanvas';
-import type { RoomState } from '../types';
+import type { RoomState, SketchLabel } from '../types';
 
 interface Props {
   state: RoomState;
-  onLiveUpdate: (data: string) => void;
-  onSubmit: (data: string) => void;
+  onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
+  onSubmit: (data: string, labels: SketchLabel[]) => void;
 }
 
 export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
@@ -24,6 +24,8 @@ export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
         keyframeIndex={currentKf}
         allKeyframes={selected}
         allKeyframeUrls={keyframes}
+        totalKeyframes={keyframes.length}
+        videoUrl={state.clip?.videoUrl}
         currentIndex={state.currentSketchIndex}
         onSubmit={onSubmit}
         onLiveUpdate={onLiveUpdate}

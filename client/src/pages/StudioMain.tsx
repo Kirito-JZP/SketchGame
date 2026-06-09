@@ -1,88 +1,107 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Category } from '../types';
+import { useSocket } from '../hooks/useSocket';
 
-const MODULE_POSITIONS: Record<string, { top: string; left: string; label: string }> = {
-  action: { top: '18%', left: '12%', label: 'Action' },
-  'heavy-composition': { top: '12%', left: '72%', label: 'Heavy Composition' },
-  impressionistic: { top: '42%', left: '82%', label: 'Impressionistic' },
-  'long-take': { top: '72%', left: '68%', label: 'Long Take' },
-  'spatial-transformation': { top: '68%', left: '8%', label: 'Spatial Transformation' },
-};
+type PendingAction = 'start' | 'share' | null;
 
 export default function StudioMain() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [playerName, setPlayerName] = useState('');
+  const [hasClips, setHasClips] = useState(true);
+  const [loadingShare, setLoadingShare] = useState(false);
   const [showNameModal, setShowNameModal] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [emptyMessage, setEmptyMessage] = useState('');
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [playerName, setPlayerName] = useState('');
   const navigate = useNavigate();
+  const { connected, joinRoom } = useSocket();
 
   useEffect(() => {
-    fetch('/api/categories')
+    fetch('/api/status')
       .then((r) => r.json())
-      .then(setCategories)
-      .catch(console.error);
+      .then((data) => setHasClips(data.hasClips))
+      .catch(() => setHasClips(false));
   }, []);
 
-  const handleModuleClick = (cat: Category) => {
-    if (!cat.hasContent) {
-      setEmptyMessage('Game resources are being created, please stay tuned.');
-      setTimeout(() => setEmptyMessage(''), 3000);
-      return;
-    }
-    setSelectedCategory(cat);
+  const openNameModal = (action: PendingAction) => {
+    setPendingAction(action);
     setShowNameModal(true);
   };
 
-  const handleJoin = () => {
-    if (!selectedCategory) return;
-    const name = playerName.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
-    navigate(`/waiting/${selectedCategory.id}`, {
-      state: { categoryId: selectedCategory.id, categoryFolder: selectedCategory.folder, playerName: name },
-    });
+  const closeNameModal = () => {
+    setShowNameModal(false);
+    setPendingAction(null);
+  };
+
+  const resolveName = () => playerName.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
+
+  const handleStartGame = () => {
+    if (!hasClips) {
+      alert('Game resources are being created, please stay tuned.');
+      return;
+    }
+    openNameModal('start');
+  };
+
+  const handleShare = () => {
+    if (!connected) {
+      alert('Connecting to server, please try again in a moment.');
+      return;
+    }
+    openNameModal('share');
+  };
+
+  const handleNameSubmit = async () => {
+    const name = resolveName();
+
+    if (pendingAction === 'start') {
+      closeNameModal();
+      navigate('/waiting', { state: { playerName: name } });
+      return;
+    }
+
+    if (pendingAction === 'share') {
+      setLoadingShare(true);
+      try {
+        const { roomId } = await joinRoom({ createNew: true, playerName: name });
+        const link = `${window.location.origin}/join/${roomId}`;
+        closeNameModal();
+        navigate(`/join/${roomId}`, { state: { playerName: name, shareLink: link } });
+      } catch {
+        alert('Failed to create a room. Please try again.');
+      } finally {
+        setLoadingShare(false);
+      }
+    }
   };
 
   return (
-    <div className="studio-page">
-      <div className="studio-scene">
-        <img src="/studio-bg.png" alt="Movie Studio" className="studio-bg" />
-        {categories.map((cat) => {
-          const pos = MODULE_POSITIONS[cat.id];
-          if (!pos) return null;
-          return (
-            <button
-              key={cat.id}
-              className={`studio-module ${cat.hasContent ? 'active' : 'disabled'}`}
-              style={{ top: pos.top, left: pos.left }}
-              onClick={() => handleModuleClick(cat)}
-              title={pos.label}
-            >
-              <span className="module-hit-area" />
-            </button>
-          );
-        })}
-        <div className="studio-tour-hit" title="Studio Tour" />
+    <div className="home-page">
+      <img src="/home-bg.png" alt="Movie Draw" className="home-bg" />
+      <div className="home-actions">
+        <button className="home-btn home-btn-primary" onClick={handleStartGame} disabled={!hasClips}>
+          Start Game
+        </button>
+        <button className="home-btn home-btn-secondary" onClick={handleShare} disabled={loadingShare}>
+          {loadingShare ? 'Creating link...' : 'Share to friends'}
+        </button>
       </div>
-
-      {emptyMessage && <div className="toast-message">{emptyMessage}</div>}
 
       {showNameModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <h2>Enter {selectedCategory?.label}</h2>
+            <h2>Enter the Game</h2>
             <p>Enter your name to join the waiting room</p>
             <input
               type="text"
               placeholder="Your name"
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+              onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
               autoFocus
             />
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setShowNameModal(false)}>Cancel</button>
-              <button className="btn-primary" onClick={handleJoin}>Join Waiting Room</button>
+              <button className="btn-secondary" onClick={closeNameModal}>Cancel</button>
+              <button className="btn-primary" onClick={handleNameSubmit}>
+                {pendingAction === 'share' ? 'Create & Share' : 'Join Waiting Room'}
+              </button>
             </div>
           </div>
         </div>

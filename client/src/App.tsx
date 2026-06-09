@@ -11,7 +11,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<StudioMain />} />
-          <Route path="/waiting/:categoryId" element={<WaitingRoom />} />
+          <Route path="/waiting" element={<WaitingRoom />} />
+          <Route path="/join/:roomId" element={<WaitingRoom />} />
           <Route path="/game/:roomId" element={<Game />} />
         </Routes>
       </BrowserRouter>

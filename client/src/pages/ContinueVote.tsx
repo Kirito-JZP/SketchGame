@@ -1,43 +1,41 @@
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { RoomState } from '../types';
 
 interface Props {
   state: RoomState;
   onVote: (vote: boolean) => void;
-  onStartNext: () => void;
 }
 
-export default function ContinueVote({ state, onVote, onStartNext }: Props) {
-  const votes = state.continueVotes;
+export default function ContinueVote({ state, onVote }: Props) {
+  const navigate = useNavigate();
   const myVote = state.players.find((p) => p.id === state.myId)?.continueVote;
-  const canStart = state.isHost && votes && votes.continue >= 2;
+
+  useEffect(() => {
+    if (myVote === false) {
+      navigate('/', { replace: true });
+    }
+  }, [myVote, navigate]);
+
+  const handleContinue = () => {
+    onVote(true);
+    navigate('/waiting', { state: { roomId: state.id }, replace: true });
+  };
+
+  const handleExit = () => {
+    onVote(false);
+    navigate('/', { replace: true });
+  };
 
   return (
     <div className="continue-vote-page">
       <h2>Round Complete!</h2>
       <p>Do you want to play another round?</p>
 
-      {myVote === null ? (
-        <div className="vote-buttons">
-          <button className="btn-primary" onClick={() => onVote(true)}>Continue Playing</button>
-          <button className="btn-secondary" onClick={() => onVote(false)}>Exit</button>
-        </div>
-      ) : (
-        <p className="vote-confirmed">You voted to {myVote ? 'continue' : 'exit'}. Waiting for others...</p>
-      )}
-
-      {votes && (
-        <div className="vote-status">
-          <p>{votes.continue} want to continue, {votes.exit} want to exit</p>
-          {canStart && state.isHost && (
-            <button className="btn-primary" onClick={onStartNext}>
-              Start Next Round
-            </button>
-          )}
-          {votes.continue < 2 && (
-            <p className="vote-hint">Need at least 2 players to continue</p>
-          )}
-        </div>
-      )}
+      <div className="vote-buttons">
+        <button className="btn-primary" onClick={handleContinue}>Continue Playing</button>
+        <button className="btn-secondary" onClick={handleExit}>Exit</button>
+      </div>
     </div>
   );
 }

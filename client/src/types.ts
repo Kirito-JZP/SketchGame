@@ -18,18 +18,33 @@ export interface Player {
   continueVote: boolean | null;
 }
 
+export interface SketchLabel {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  color: string;
+}
+
 export interface Sketch {
   data: string | null;
+  labels?: SketchLabel[];
   ratings?: number[];
   averageRating?: number;
   redrawCount: number;
   index: number;
 }
 
+export interface LiveDrawing {
+  data: string;
+  labels: SketchLabel[];
+  sketchIndex: number;
+}
+
 export interface GuessOption {
   id: string;
   title: string;
-  thumbnail?: string;
+  videoUrl?: string;
 }
 
 export interface RoundScore {
@@ -42,8 +57,8 @@ export interface RoundScore {
 
 export interface RoomState {
   id: string;
-  categoryId: string;
-  categoryFolder: string;
+  categoryId: string | null;
+  categoryFolder: string | null;
   hostId: string;
   phase: string;
   players: Player[];
@@ -66,13 +81,15 @@ export interface RoomState {
   ratingProgress: { completed: number; total: number };
   sessionTimeLeft: number;
   sketchTimeLeft: number;
-  liveDrawing: string | null;
+  liveDrawing: LiveDrawing | null;
   roundScores: RoundScore[] | null;
   redrawKeyframes: number[];
   correctAnswer?: string;
   myRole: 'drawer' | 'guesser' | null;
   myId: string;
   isHost: boolean;
+  rolesLocked: boolean;
   canSelectRole: boolean;
+  mustBeDrawer: boolean;
   continueVotes: { continue: number; exit: number; total: number } | null;
 }

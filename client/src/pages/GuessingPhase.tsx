@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import GameHeader from '../components/GameHeader';
+import SketchViewer from '../components/SketchViewer';
 import type { RoomState } from '../types';
 
 interface Props {
   state: RoomState;
-  liveDrawing: { data: string; sketchIndex: number } | null;
+  liveDrawing: { data: string; labels: import('../types').SketchLabel[]; sketchIndex: number } | null;
   onSubmit: (guessId: string, ratings: number[], comment: string) => void;
 }
 
@@ -44,12 +45,12 @@ export default function GuessingPhase({ state, liveDrawing, onSubmit }: Props) {
     else if (!allSketchesDone) setSubmitted(true);
   };
 
-  const displaySketches = sketches.map((s, i) => {
+  const getSketchDisplay = (i: number) => {
     if (liveDrawing && liveDrawing.sketchIndex === i && isDrawing) {
-      return liveDrawing.data;
+      return { data: liveDrawing.data, labels: liveDrawing.labels };
     }
-    return s.data;
-  });
+    return { data: sketches[i].data, labels: sketches[i].labels || [] };
+  };
 
   return (
     <div className="game-page guessing-page">
@@ -60,17 +61,23 @@ export default function GuessingPhase({ state, liveDrawing, onSubmit }: Props) {
           <h2>Step 1. See the sketches</h2>
         </div>
         <div className="sketches-row">
-          {displaySketches.map((data, i) => (
-            <div key={i} className="sketch-card">
-              {data ? (
-                <img src={data} alt={`Sketch ${i + 1}`} className="sketch-img" />
-              ) : (
-                <div className="sketch-placeholder">
-                  {isDrawing && liveDrawing?.sketchIndex === i ? 'Drawing in progress...' : 'Waiting for sketch...'}
-                </div>
-              )}
-            </div>
-          ))}
+          {sketches.map((_, i) => {
+            const display = getSketchDisplay(i);
+            return (
+              <div key={i} className="sketch-card">
+                <SketchViewer
+                  imageData={display.data}
+                  labels={display.labels}
+                  className="sketch-img-wrap"
+                  placeholder={
+                    isDrawing && liveDrawing?.sketchIndex === i
+                      ? 'Drawing in progress...'
+                      : 'Waiting for sketch...'
+                  }
+                />
+              </div>
+            );
+          })}
         </div>
 
         {allSketchesDone && (
@@ -114,7 +121,16 @@ export default function GuessingPhase({ state, liveDrawing, onSubmit }: Props) {
               onClick={() => setSelectedGuess(opt.id)}
             >
               <span className="guess-letter">{String.fromCharCode(65 + i)}</span>
-              {opt.thumbnail && <img src={opt.thumbnail} alt={opt.title} className="guess-thumb" />}
+              {opt.videoUrl && (
+                <video
+                  src={opt.videoUrl}
+                  className="guess-video"
+                  controls
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
+              )}
               <span className="guess-title">{opt.title}</span>
             </button>
           ))}

@@ -6,29 +6,37 @@ interface Props {
 }
 
 export default function RoleSelection({ state, onSelect }: Props) {
+  const rolesLocked = state.rolesLocked;
   const drawerTaken = state.drawerChosen;
   const isMyTurn = state.canSelectRole;
+  const mustBeDrawer = state.mustBeDrawer;
 
   return (
     <div className="role-selection-page">
-      <h2>Select your role</h2>
-      {!isMyTurn && (
+      <h2>{rolesLocked ? 'Roles for this round' : 'Select your role'}</h2>
+      {rolesLocked && (
+        <p className="wait-turn">Roles rotate each round. Starting the next round shortly...</p>
+      )}
+      {!rolesLocked && !isMyTurn && (
         <p className="wait-turn">
           Waiting for {state.players.find((p) => p.joinOrder === state.roleSelectionIndex)?.name} to choose...
         </p>
       )}
+      {!rolesLocked && mustBeDrawer && isMyTurn && (
+        <p className="wait-turn">You are the last player — you must be the drawer.</p>
+      )}
       <div className="role-cards">
         <button
-          className={`role-card ${!isMyTurn || drawerTaken ? 'disabled' : ''}`}
-          disabled={!isMyTurn || drawerTaken}
+          className={`role-card ${rolesLocked || !isMyTurn || (drawerTaken && !mustBeDrawer) ? 'disabled' : ''}`}
+          disabled={rolesLocked || !isMyTurn || (drawerTaken && !mustBeDrawer)}
           onClick={() => onSelect('drawer')}
         >
           <span className="role-emoji">🎨</span>
           <span className="role-name">Draw</span>
         </button>
         <button
-          className={`role-card ${!isMyTurn ? 'disabled' : ''}`}
-          disabled={!isMyTurn}
+          className={`role-card ${rolesLocked || !isMyTurn || mustBeDrawer ? 'disabled' : ''}`}
+          disabled={rolesLocked || !isMyTurn || mustBeDrawer}
           onClick={() => onSelect('guesser')}
         >
           <span className="role-emoji">💡</span>
@@ -36,13 +44,21 @@ export default function RoleSelection({ state, onSelect }: Props) {
         </button>
       </div>
       <div className="role-status">
-        {state.players
-          .filter((p) => p.role)
-          .map((p) => (
-            <span key={p.id} className="role-status-item">
-              {p.name}: {p.role}
-            </span>
-          ))}
+        {rolesLocked
+          ? [...state.players]
+              .sort((a, b) => a.joinOrder - b.joinOrder)
+              .map((p) => (
+                <span key={p.id} className="role-status-item">
+                  {p.name}: {p.role}
+                </span>
+              ))
+          : state.players
+              .filter((p) => p.role)
+              .map((p) => (
+                <span key={p.id} className="role-status-item">
+                  {p.name}: {p.role}
+                </span>
+              ))}
       </div>
     </div>
   );

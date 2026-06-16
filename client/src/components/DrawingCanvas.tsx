@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SketchLabel } from '../types';
+import { frameNumberToVideoTime, parseKeyframeFrameNumber } from '../utils/keyframeVideo';
 import { KEYFRAME_LABEL_COLORS, exportCanvasWithLabels } from '../utils/sketchLabels';
 
 const COLORS = ['#000000', '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#ffffff'];
@@ -9,7 +10,6 @@ interface Props {
   keyframeIndex: number;
   allKeyframes: number[];
   allKeyframeUrls: string[];
-  totalKeyframes: number;
   videoUrl?: string;
   currentIndex: number;
   onSubmit: (data: string, labels: SketchLabel[]) => void;
@@ -20,7 +20,6 @@ export default function DrawingCanvas({
   keyframeIndex,
   allKeyframes,
   allKeyframeUrls,
-  totalKeyframes,
   videoUrl,
   currentIndex,
   onSubmit,
@@ -124,13 +123,14 @@ export default function DrawingCanvas({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !videoUrl || totalKeyframes <= 0) return;
+    if (!video || !videoUrl || !currentKeyframeUrl) return;
 
-    const frameNumber = keyframeIndex + 1;
+    const frameNumber = parseKeyframeFrameNumber(currentKeyframeUrl);
+    if (frameNumber === null) return;
+
     const seekToFrame = () => {
-      if (!video.duration || Number.isNaN(video.duration)) return;
       video.pause();
-      video.currentTime = (frameNumber / totalKeyframes) * video.duration;
+      video.currentTime = frameNumberToVideoTime(frameNumber);
     };
 
     if (video.readyState >= 1) {
@@ -138,7 +138,7 @@ export default function DrawingCanvas({
     } else {
       video.addEventListener('loadedmetadata', seekToFrame, { once: true });
     }
-  }, [keyframeIndex, videoUrl, totalKeyframes]);
+  }, [currentKeyframeUrl, videoUrl]);
 
   const getCanvasPos = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current!;

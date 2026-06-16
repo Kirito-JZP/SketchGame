@@ -24,7 +24,6 @@ export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
         keyframeIndex={currentKf}
         allKeyframes={selected}
         allKeyframeUrls={keyframes}
-        totalKeyframes={keyframes.length}
         videoUrl={state.clip?.videoUrl}
         currentIndex={state.currentSketchIndex}
         onSubmit={onSubmit}

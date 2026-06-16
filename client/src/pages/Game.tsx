@@ -75,9 +75,8 @@ export default function Game() {
       <GuessingPhase
         state={roomState}
         liveDrawing={liveDrawing}
-        onSubmit={(guessId, ratings, comment) =>
-          emit('guess:submit', { guessId, ratings, comment })
-        }
+        onSubmitAnswer={(guessId) => emit('guess:submit', { guessId })}
+        onSubmitRating={(ratings, comment) => emit('rating:submit', { ratings, comment })}
       />
     );
   }

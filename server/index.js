@@ -200,13 +200,20 @@ io.on('connection', (socket) => {
     cb?.({ success: !!result, result });
   });
 
-  socket.on('guess:submit', ({ guessId, ratings, comment }, cb) => {
+  socket.on('guess:submit', ({ guessId }, cb) => {
     const room = rooms.get(currentRoomId);
     if (!room) return;
 
-    if (guessId) submitGuess(room, playerId, guessId);
-    if (ratings && room.phase === PHASES.GUESSING) submitRatings(room, playerId, ratings, comment);
+    submitGuess(room, playerId, guessId);
+    broadcastRoom(currentRoomId);
+    cb?.({ success: true });
+  });
 
+  socket.on('rating:submit', ({ ratings, comment }, cb) => {
+    const room = rooms.get(currentRoomId);
+    if (!room) return;
+
+    submitRatings(room, playerId, ratings, comment);
     broadcastRoom(currentRoomId);
     cb?.({ success: true });
   });

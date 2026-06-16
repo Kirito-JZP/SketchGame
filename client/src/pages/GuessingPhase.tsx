@@ -6,16 +6,26 @@ import type { RoomState } from '../types';
 interface Props {
   state: RoomState;
   liveDrawing: { data: string; labels: import('../types').SketchLabel[]; sketchIndex: number } | null;
-  onSubmit: (guessId: string, ratings: number[], comment: string) => void;
+  onSubmitAnswer: (guessId: string) => void;
+  onSubmitRating: (ratings: number[], comment: string) => void;
 }
 
-function StarRating({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function StarRating({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
   return (
-    <div className="star-rating">
+    <div className={`star-rating ${disabled ? 'disabled' : ''}`}>
       {[1, 2, 3, 4, 5].map((star) => (
         <button
           key={star}
           className={`star ${star <= value ? 'filled' : ''}`}
+          disabled={disabled}
           onClick={() => onChange(star)}
         >
           ★
@@ -25,24 +35,30 @@ function StarRating({ value, onChange }: { value: number; onChange: (v: number) 
   );
 }
 
-export default function GuessingPhase({ state, liveDrawing, onSubmit }: Props) {
+export default function GuessingPhase({ state, liveDrawing, onSubmitAnswer, onSubmitRating }: Props) {
   const [ratings, setRatings] = useState([0, 0, 0]);
   const [selectedGuess, setSelectedGuess] = useState<string | null>(null);
   const [comment, setComment] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+
+  const me = state.players.find((p) => p.id === state.myId);
+  const hasSubmittedAnswer = me?.hasGuessed ?? false;
+  const hasSubmittedRating = me?.hasRated ?? false;
 
   const sketches = state.sketches;
   const isDrawing = state.phase === 'drawing' || state.phase === 'redraw';
-  const allSketchesDone = sketches.every((s) => s.data);
+  const sketchesReadyForRating = state.phase === 'guessing';
   const allRated = ratings.every((r) => r > 0);
-  const canSubmit = selectedGuess && (isDrawing && !allSketchesDone ? true : allRated);
+  const canSubmitAnswer = !!selectedGuess && !hasSubmittedAnswer;
+  const canSubmitRating = sketchesReadyForRating && allRated && !hasSubmittedRating;
 
-  const handleSubmit = () => {
-    if (!selectedGuess) return;
-    if (allSketchesDone && !allRated) return;
-    onSubmit(selectedGuess, allSketchesDone ? ratings : [0, 0, 0], comment);
-    if (allSketchesDone && allRated) setSubmitted(true);
-    else if (!allSketchesDone) setSubmitted(true);
+  const handleSubmitAnswer = () => {
+    if (!canSubmitAnswer || !selectedGuess) return;
+    onSubmitAnswer(selectedGuess);
+  };
+
+  const handleSubmitRating = () => {
+    if (!canSubmitRating) return;
+    onSubmitRating(ratings, comment);
   };
 
   const getSketchDisplay = (i: number) => {
@@ -80,32 +96,33 @@ export default function GuessingPhase({ state, liveDrawing, onSubmit }: Props) {
           })}
         </div>
 
-        {allSketchesDone && (
-          <>
-            <div className="step-header">
-              <span className="step-icon">⭐</span>
-              <h2>Step 2. Rate the sketches</h2>
-            </div>
-            <div className="ratings-row">
-              {sketches.map((_, i) => (
-                <div key={i} className="rating-card">
-                  <p>Rating of this sketch:</p>
-                  <StarRating
-                    value={ratings[i]}
-                    onChange={(v) => setRatings((prev) => { const n = [...prev]; n[i] = v; return n; })}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Leave comments (optional)"
-                    className="comment-input"
-                    value={i === 0 ? comment : ''}
-                    onChange={(e) => i === 0 && setComment(e.target.value)}
-                  />
-                </div>
-              ))}
-            </div>
-          </>
+        <div className="step-header">
+          <span className="step-icon">⭐</span>
+          <h2>Step 2. Rate the sketches</h2>
+        </div>
+        {!sketchesReadyForRating && (
+          <p className="rating-wait-msg">Waiting for the drawer to finish all sketches...</p>
         )}
+        <div className={`ratings-row ${!sketchesReadyForRating ? 'ratings-disabled' : ''}`}>
+          {sketches.map((_, i) => (
+            <div key={i} className="rating-card">
+              <p>Rating of this sketch:</p>
+              <StarRating
+                value={ratings[i]}
+                disabled={!sketchesReadyForRating || hasSubmittedRating}
+                onChange={(v) => setRatings((prev) => { const n = [...prev]; n[i] = v; return n; })}
+              />
+              <input
+                type="text"
+                placeholder="Leave comments (optional)"
+                className="comment-input"
+                disabled={!sketchesReadyForRating || hasSubmittedRating}
+                value={i === 0 ? comment : ''}
+                onChange={(e) => i === 0 && setComment(e.target.value)}
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="guessing-section guess-movie-section">
@@ -118,6 +135,7 @@ export default function GuessingPhase({ state, liveDrawing, onSubmit }: Props) {
             <button
               key={opt.id}
               className={`guess-option ${selectedGuess === opt.id ? 'selected' : ''}`}
+              disabled={hasSubmittedAnswer}
               onClick={() => setSelectedGuess(opt.id)}
             >
               <span className="guess-letter">{String.fromCharCode(65 + i)}</span>
@@ -137,17 +155,37 @@ export default function GuessingPhase({ state, liveDrawing, onSubmit }: Props) {
         </div>
       </div>
 
-      <div className="page-footer">
-        {submitted ? (
-          <p className="submitted-msg">Answer submitted! Waiting for other players...</p>
-        ) : (
-          <button
-            className={`btn-primary ${canSubmit ? '' : 'btn-disabled'}`}
-            disabled={!canSubmit}
-            onClick={handleSubmit}
-          >
-            Finish selecting, next
-          </button>
+      <div className="page-footer guessing-footer">
+        <div className="guessing-actions">
+          <div className="guessing-action">
+            {hasSubmittedAnswer ? (
+              <p className="submitted-msg">Answer submitted!</p>
+            ) : (
+              <button
+                className={`btn-primary ${canSubmitAnswer ? '' : 'btn-disabled'}`}
+                disabled={!canSubmitAnswer}
+                onClick={handleSubmitAnswer}
+              >
+                Submit Answer
+              </button>
+            )}
+          </div>
+          <div className="guessing-action">
+            {hasSubmittedRating ? (
+              <p className="submitted-msg">Ratings submitted!</p>
+            ) : (
+              <button
+                className={`btn-primary ${canSubmitRating ? '' : 'btn-disabled'}`}
+                disabled={!canSubmitRating}
+                onClick={handleSubmitRating}
+              >
+                Submit Rating
+              </button>
+            )}
+          </div>
+        </div>
+        {hasSubmittedAnswer && hasSubmittedRating && (
+          <p className="submitted-msg waiting-msg">Waiting for other players...</p>
         )}
       </div>
     </div>

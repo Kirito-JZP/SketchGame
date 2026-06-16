@@ -989,6 +989,44 @@ body {
   color: #666;
 }
 
+.rating-wait-msg {
+  color: #888;
+  padding: 0 32px 8px;
+  font-size: 0.9rem;
+}
+
+.ratings-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.star-rating.disabled .star {
+  cursor: not-allowed;
+}
+
+.guessing-footer {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.guessing-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.guessing-action {
+  min-width: 160px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.waiting-msg {
+  margin: 0;
+}
+
 /* Round Results */
 .results-section {
   padding: 32px;

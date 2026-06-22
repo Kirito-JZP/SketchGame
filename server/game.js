@@ -1,4 +1,5 @@
 import { pickGuessOptions, pickRandomClipFromAnyCategory } from './clips.js';
+import { saveRoundSketches } from './sketchStorage.js';
 
 export const PHASES = {
   WAITING: 'waiting',
@@ -419,6 +420,7 @@ function finishRound(room) {
     if (player) player.score += rs.roundPoints;
   });
 
+  saveRoundSketches(room);
   room.phase = PHASES.ROUND_RESULTS;
 }
 

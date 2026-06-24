@@ -21,6 +21,26 @@ function isImageFile(name) {
   return /\.(jpg|jpeg|png|webp|gif)$/i.test(name);
 }
 
+function loadBonusKeywords(clipPath, keyframeCount) {
+  const keywordsPath = path.join(clipPath, 'keywords.json');
+  if (!fs.existsSync(keywordsPath)) {
+    return Array.from({ length: keyframeCount }, (_, i) => `hint-${i + 1}`);
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(keywordsPath, 'utf8'));
+    if (Array.isArray(data.bonusKeywords)) {
+      return Array.from({ length: keyframeCount }, (_, i) => data.bonusKeywords[i] ?? `hint-${i + 1}`);
+    }
+    if (Array.isArray(data)) {
+      return Array.from({ length: keyframeCount }, (_, i) => data[i] ?? `hint-${i + 1}`);
+    }
+    return Array.from({ length: keyframeCount }, (_, i) => data[String(i)] ?? data[i] ?? `hint-${i + 1}`);
+  } catch {
+    return Array.from({ length: keyframeCount }, (_, i) => `hint-${i + 1}`);
+  }
+}
+
 export function getCategoryStatus() {
   return CATEGORIES.map((cat) => {
     const folderPath = path.join(CLIPS_DIR, cat.folder);
@@ -73,6 +93,7 @@ export function getClipsForCategory(categoryFolder) {
         videoUrl: `/clips/${encodeURIComponent(categoryFolder)}/${encodeURIComponent(clipDir.name)}/${encodeURIComponent(videoFile)}`,
         thumbnail: keyframeUrls[0],
         keyframes: keyframeUrls,
+        bonusKeywords: loadBonusKeywords(clipPath, keyframes.length),
       };
     })
     .filter(Boolean);

@@ -16,6 +16,13 @@ export const PHASES = {
 
 const SESSION_TIME = 180;
 const SKETCH_TIME = 60;
+export const POWER_UP_STARTING_POINTS = 50;
+export const KEYWORD_REQUEST_COST = 5;
+
+function resetKeywordRequestState(room) {
+  room.keywordRequests = [null, null, null];
+  room.privateSketchUpdates = {};
+}
 
 export function createRoom(hostId, isInviteOnly = false) {
   return {
@@ -49,6 +56,8 @@ export function createRoom(hostId, isInviteOnly = false) {
     redrawKeyframes: [],
     liveDrawing: null,
     rolesLocked: false,
+    keywordRequests: [null, null, null],
+    privateSketchUpdates: {},
   };
 }
 
@@ -56,6 +65,7 @@ export function addPlayer(room, playerId, playerName) {
   const existing = room.players.find((p) => p.id === playerId);
   if (existing) {
     if (playerName) existing.name = playerName;
+    if (existing.powerUpPoints == null) existing.powerUpPoints = POWER_UP_STARTING_POINTS;
     return existing;
   }
 
@@ -68,6 +78,7 @@ export function addPlayer(room, playerId, playerName) {
     hasGuessed: false,
     hasRated: false,
     continueVote: null,
+    powerUpPoints: POWER_UP_STARTING_POINTS,
   };
   room.players.push(player);
   return player;
@@ -105,10 +116,10 @@ export function getPublicRoomState(room, playerId) {
       ? {
           id: room.clip.id,
           title: isDrawer || room.phase === PHASES.GUESSING || room.phase === PHASES.ROUND_RESULTS ? room.clip.title : undefined,
-          videoUrl: isDrawer && (room.phase === PHASES.WATCH_CLIP || room.phase === PHASES.SELECT_KEYFRAMES || room.phase === PHASES.DRAWING || room.phase === PHASES.REDRAW)
+          videoUrl: isDrawer && (room.phase === PHASES.WATCH_CLIP || room.phase === PHASES.SELECT_KEYFRAMES || room.phase === PHASES.DRAWING || room.phase === PHASES.REDRAW || room.phase === PHASES.GUESSING)
             ? room.clip.videoUrl
             : undefined,
-          keyframes: isDrawer && (room.phase === PHASES.SELECT_KEYFRAMES || room.phase === PHASES.DRAWING || room.phase === PHASES.REDRAW)
+          keyframes: isDrawer && (room.phase === PHASES.SELECT_KEYFRAMES || room.phase === PHASES.DRAWING || room.phase === PHASES.REDRAW || room.phase === PHASES.GUESSING)
             ? room.clip.keyframes
             : undefined,
         }
@@ -120,14 +131,17 @@ export function getPublicRoomState(room, playerId) {
         ? room.guessOptions.map((o) => ({ id: o.id, title: o.title, videoUrl: o.videoUrl }))
         : [],
     selectedKeyframes: isDrawer ? room.selectedKeyframes : room.selectedKeyframes.map((_, i) => i),
-    sketches: room.sketches.map((s, i) => ({
-      data: s.data,
-      labels: s.labels || [],
-      ratings: room.phase === PHASES.ROUND_RESULTS ? s.ratings : undefined,
-      averageRating: room.phase === PHASES.ROUND_RESULTS ? getAverageRating(s.ratings) : undefined,
-      redrawCount: s.redrawCount,
-      index: i,
-    })),
+    sketches: room.sketches.map((s, i) => {
+      const privateUpdate = me?.role === 'guesser' ? room.privateSketchUpdates[playerId]?.[i] : null;
+      return {
+        data: privateUpdate?.data ?? s.data,
+        labels: privateUpdate || s.data ? [] : (s.labels ?? []),
+        ratings: room.phase === PHASES.ROUND_RESULTS ? s.ratings : undefined,
+        averageRating: room.phase === PHASES.ROUND_RESULTS ? getAverageRating(s.ratings) : undefined,
+        redrawCount: s.redrawCount,
+        index: i,
+      };
+    }),
     currentSketchIndex: room.currentSketchIndex,
     drawerId: room.drawerId,
     roleSelectionIndex: room.roleSelectionIndex,
@@ -172,6 +186,28 @@ export function getPublicRoomState(room, playerId) {
           total: room.players.length,
         }
       : null,
+    myPowerUpPoints: me?.powerUpPoints ?? POWER_UP_STARTING_POINTS,
+    myKeywordRequestStatus:
+      me?.role === 'guesser'
+        ? [0, 1, 2].map((i) => {
+            const req = room.keywordRequests[i];
+            if (!req || req.requestedBy !== playerId) return 'none';
+            return req.status;
+          })
+        : ['none', 'none', 'none'],
+    bonusKeywordClaimed: room.keywordRequests.map((req) => req !== null),
+    keywordRequests: isDrawer
+      ? room.keywordRequests.map((req, i) =>
+          req
+            ? {
+                sketchIndex: i,
+                requesterName: req.requesterName,
+                presetKeyword: req.presetKeyword,
+                status: req.status,
+              }
+            : null
+        )
+      : [null, null, null],
   };
 }
 
@@ -271,6 +307,7 @@ function beginRound(room) {
   room.redrawKeyframes = [];
   room.liveDrawing = null;
   room.roundScores = null;
+  resetKeywordRequestState(room);
   room.sessionTimeLeft = SESSION_TIME;
   room.sketchTimeLeft = SKETCH_TIME;
   room.phase = PHASES.WATCH_CLIP;
@@ -344,6 +381,48 @@ export function submitRatings(room, playerId, ratings, comment) {
   return true;
 }
 
+export function requestAdditionalKeyword(room, playerId, sketchIndex) {
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || player.role !== 'guesser') return false;
+  if (room.phase !== PHASES.GUESSING) return false;
+  if (player.hasRated) return false;
+  if (sketchIndex < 0 || sketchIndex > 2) return false;
+  if (!room.sketches[sketchIndex]?.data) return false;
+  if (room.keywordRequests[sketchIndex] !== null) return false;
+  if ((player.powerUpPoints ?? 0) < KEYWORD_REQUEST_COST) return false;
+
+  const keyframeIndex = room.selectedKeyframes[sketchIndex];
+  const presetKeyword =
+    room.clip?.bonusKeywords?.[keyframeIndex] ?? `hint-${sketchIndex + 1}`;
+
+  player.powerUpPoints -= KEYWORD_REQUEST_COST;
+  room.keywordRequests[sketchIndex] = {
+    requestedBy: playerId,
+    requesterName: player.name,
+    presetKeyword,
+    status: 'pending',
+  };
+  return true;
+}
+
+export function fulfillKeywordRequest(room, playerId, sketchIndex, sketchData, labels = []) {
+  if (room.drawerId !== playerId || room.phase !== PHASES.GUESSING) return false;
+
+  const request = room.keywordRequests[sketchIndex];
+  if (!request || request.status !== 'pending') return false;
+
+  const requesterId = request.requestedBy;
+  if (!room.privateSketchUpdates[requesterId]) {
+    room.privateSketchUpdates[requesterId] = {};
+  }
+  room.privateSketchUpdates[requesterId][sketchIndex] = {
+    data: sketchData,
+    labels,
+  };
+  request.status = 'fulfilled';
+  return true;
+}
+
 export function checkGuessingComplete(room) {
   const guessers = room.players.filter((p) => p.role === 'guesser');
   if (guessers.every((p) => p.hasGuessed && p.hasRated)) {
@@ -382,6 +461,7 @@ function evaluateRound(room) {
     });
     room.guesses = {};
     room.guessOrder = [];
+    resetKeywordRequestState(room);
     return;
   }
 
@@ -404,6 +484,7 @@ function evaluateRound(room) {
       });
       room.guesses = {};
       room.guessOrder = [];
+      resetKeywordRequestState(room);
       return;
     }
   }

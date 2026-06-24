@@ -5,7 +5,7 @@ import RoleSelection from './RoleSelection';
 import WatchClip from './WatchClip';
 import SelectKeyframes from './SelectKeyframes';
 import DrawingPhase from './DrawingPhase';
-import DrawerWaiting from './DrawerWaiting';
+import DrawerGuessingPanel from './DrawerGuessingPanel';
 import GuessingPhase from './GuessingPhase';
 import RoundResults from './RoundResults';
 import ContinueVote from './ContinueVote';
@@ -67,7 +67,14 @@ export default function Game() {
   }
 
   if (phase === 'guessing' && isDrawer) {
-    return <DrawerWaiting state={roomState} />;
+    return (
+      <DrawerGuessingPanel
+        state={roomState}
+        onFulfillKeyword={(sketchIndex, data, labels) =>
+          emit('keyword:fulfill', { sketchIndex, data, labels })
+        }
+      />
+    );
   }
 
   if ((phase === 'drawing' || phase === 'guessing') && isGuesser) {
@@ -77,6 +84,7 @@ export default function Game() {
         liveDrawing={liveDrawing}
         onSubmitAnswer={(guessId) => emit('guess:submit', { guessId })}
         onSubmitRating={(ratings, comment) => emit('rating:submit', { ratings, comment })}
+        onRequestKeyword={(sketchIndex) => emit('keyword:request', { sketchIndex })}
       />
     );
   }

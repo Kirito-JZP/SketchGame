@@ -55,6 +55,13 @@ export interface RoundScore {
   breakdown: Record<string, unknown>;
 }
 
+export interface KeywordRequestInfo {
+  sketchIndex: number;
+  requesterName: string;
+  presetKeyword: string;
+  status: 'pending' | 'fulfilled';
+}
+
 export interface RoomState {
   id: string;
   categoryId: string | null;
@@ -92,4 +99,8 @@ export interface RoomState {
   canSelectRole: boolean;
   mustBeDrawer: boolean;
   continueVotes: { continue: number; exit: number; total: number } | null;
+  myPowerUpPoints: number;
+  myKeywordRequestStatus: ('none' | 'pending' | 'fulfilled')[];
+  bonusKeywordClaimed: boolean[];
+  keywordRequests: (KeywordRequestInfo | null)[];
 }

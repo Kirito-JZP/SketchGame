@@ -874,8 +874,171 @@ body {
   border: 1px solid #eee;
   border-radius: 8px;
   overflow: hidden;
-  aspect-ratio: 4/3;
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.sketch-card .sketch-img-wrap,
+.sketch-card .sketch-viewer {
+  aspect-ratio: 4/3;
+  flex-shrink: 0;
+}
+
+.keyword-powerup {
+  padding: 10px 12px;
+  background: #fafafa;
+  border-top: 1px solid #eee;
+}
+
+.btn-keyword-request {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  border: 1px dashed #9b59b6;
+  border-radius: 6px;
+  background: #f8f4fc;
+  color: #7d3c98;
+  cursor: pointer;
+}
+
+.btn-keyword-request:hover {
+  background: #efe4f7;
+}
+
+.bonus-keyword-reveal {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #333;
+}
+
+.bonus-keyword-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 2px;
+}
+
+.keyword-claimed-msg,
+.keyword-insufficient-msg,
+.keyword-status-msg {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #999;
+  text-align: center;
+}
+
+.keyword-pending-msg {
+  color: #9b59b6;
+}
+
+.keyword-fulfilled-msg {
+  color: #27ae60;
+}
+
+/* Drawer guessing / keyword edit */
+.drawer-guessing-page .drawer-guessing-content {
+  padding: 24px 32px;
+}
+
+.drawer-guessing-stats {
+  color: #666;
+  margin-bottom: 24px;
+}
+
+.drawer-waiting-msg {
+  color: #888;
+}
+
+.keyword-requests-section {
+  margin-top: 16px;
+}
+
+.keyword-requests-section h3 {
+  margin-bottom: 8px;
+}
+
+.keyword-requests-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.keyword-request-card {
+  display: flex;
+  gap: 16px;
+  border: 1px solid #e0c3f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #faf5fd;
+}
+
+.keyword-request-preview {
+  width: 200px;
+  flex-shrink: 0;
+}
+
+.keyword-request-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+
+.keyword-edit-panel {
+  padding: 0;
+}
+
+.keyword-edit-hint {
+  color: #666;
+  font-size: 0.9rem;
+  margin: 8px 0 16px;
+}
+
+.keyword-edit-layout .keyword-edit-canvas-wrap {
+  max-width: none;
+  margin-bottom: 16px;
+}
+
+.keyword-edit-panel .toolbar {
+  margin-bottom: 16px;
+}
+
+.keyword-inputs-row-single {
+  grid-template-columns: 1fr;
+  max-width: 280px;
+}
+
+.sketch-label-tag.readonly {
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.keyword-edit-input-row {
+  display: flex;
+  gap: 8px;
+  max-width: 480px;
+  margin-bottom: 12px;
+}
+
+.keyword-edit-input-row .keyword-slot-input {
+  flex: 1;
+}
+
+.keyword-edit-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
 }
 
 .sketch-placeholder {

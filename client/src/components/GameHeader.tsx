@@ -32,6 +32,9 @@ export default function GameHeader({ state, showSketchTimer }: Props) {
       <div className="game-header-right">
         <span className="stat">Current World Rank: {myRank}/{state.players.length}</span>
         <span className="stat">Current Score: {state.players.find((p) => p.id === state.myId)?.score ?? 0}</span>
+        {state.myRole === 'guesser' && (
+          <span className="stat">Power-Up Points: {state.myPowerUpPoints}</span>
+        )}
         <span className="timer-pill">Current session time left {formatTime(state.sessionTimeLeft)}</span>
       </div>
       {showSketchTimer && (

@@ -3,11 +3,14 @@ import GameHeader from '../components/GameHeader';
 import SketchViewer from '../components/SketchViewer';
 import type { RoomState } from '../types';
 
+const KEYWORD_REQUEST_COST = 5;
+
 interface Props {
   state: RoomState;
   liveDrawing: { data: string; labels: import('../types').SketchLabel[]; sketchIndex: number } | null;
   onSubmitAnswer: (guessId: string) => void;
   onSubmitRating: (ratings: number[], comment: string) => void;
+  onRequestKeyword: (sketchIndex: number) => void;
 }
 
 function StarRating({
@@ -35,14 +38,22 @@ function StarRating({
   );
 }
 
-export default function GuessingPhase({ state, liveDrawing, onSubmitAnswer, onSubmitRating }: Props) {
+export default function GuessingPhase({
+  state,
+  liveDrawing,
+  onSubmitAnswer,
+  onSubmitRating,
+  onRequestKeyword,
+}: Props) {
   const [ratings, setRatings] = useState([0, 0, 0]);
   const [selectedGuess, setSelectedGuess] = useState<string | null>(null);
-  const [comment, setComment] = useState('');
 
   const me = state.players.find((p) => p.id === state.myId);
   const hasSubmittedAnswer = me?.hasGuessed ?? false;
   const hasSubmittedRating = me?.hasRated ?? false;
+  const powerUpPoints = state.myPowerUpPoints ?? 50;
+  const bonusKeywordClaimed = state.bonusKeywordClaimed ?? [false, false, false];
+  const myKeywordRequestStatus = state.myKeywordRequestStatus ?? ['none', 'none', 'none'];
 
   const sketches = state.sketches;
   const isDrawing = state.phase === 'drawing' || state.phase === 'redraw';
@@ -58,14 +69,47 @@ export default function GuessingPhase({ state, liveDrawing, onSubmitAnswer, onSu
 
   const handleSubmitRating = () => {
     if (!canSubmitRating) return;
-    onSubmitRating(ratings, comment);
+    onSubmitRating(ratings, '');
   };
 
   const getSketchDisplay = (i: number) => {
     if (liveDrawing && liveDrawing.sketchIndex === i && isDrawing) {
       return { data: liveDrawing.data, labels: liveDrawing.labels };
     }
-    return { data: sketches[i].data, labels: sketches[i].labels || [] };
+    return { data: sketches[i].data, labels: [] };
+  };
+
+  const renderKeywordAction = (i: number) => {
+    if (!sketchesReadyForRating || !sketches[i].data || hasSubmittedRating) return null;
+
+    const requestStatus = myKeywordRequestStatus[i];
+
+    if (requestStatus === 'fulfilled') {
+      return <p className="keyword-status-msg keyword-fulfilled-msg">Updated sketch with bonus keyword</p>;
+    }
+    if (requestStatus === 'pending') {
+      return <p className="keyword-status-msg keyword-pending-msg">Waiting for drawer to add keyword...</p>;
+    }
+    if (bonusKeywordClaimed[i]) {
+      return <p className="keyword-status-msg">Bonus keyword already claimed</p>;
+    }
+    if (powerUpPoints < KEYWORD_REQUEST_COST) {
+      return (
+        <p className="keyword-status-msg keyword-insufficient-msg">
+          Need {KEYWORD_REQUEST_COST} power-up points (you have {powerUpPoints})
+        </p>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        className="btn-keyword-request"
+        onClick={() => onRequestKeyword(i)}
+      >
+        Request Additional Keyword (−{KEYWORD_REQUEST_COST} pts)
+      </button>
+    );
   };
 
   return (
@@ -112,14 +156,7 @@ export default function GuessingPhase({ state, liveDrawing, onSubmitAnswer, onSu
                 disabled={!sketchesReadyForRating || hasSubmittedRating}
                 onChange={(v) => setRatings((prev) => { const n = [...prev]; n[i] = v; return n; })}
               />
-              <input
-                type="text"
-                placeholder="Leave comments (optional)"
-                className="comment-input"
-                disabled={!sketchesReadyForRating || hasSubmittedRating}
-                value={i === 0 ? comment : ''}
-                onChange={(e) => i === 0 && setComment(e.target.value)}
-              />
+              <div className="keyword-powerup">{renderKeywordAction(i)}</div>
             </div>
           ))}
         </div>

@@ -23,6 +23,8 @@ import {
   submitGuess,
   submitKeyframes,
   submitRatings,
+  requestAdditionalKeyword,
+  fulfillKeywordRequest,
   submitSketch,
   updateLiveDrawing,
 } from './game.js';
@@ -216,6 +218,24 @@ io.on('connection', (socket) => {
     submitRatings(room, playerId, ratings, comment);
     broadcastRoom(currentRoomId);
     cb?.({ success: true });
+  });
+
+  socket.on('keyword:request', ({ sketchIndex }, cb) => {
+    const room = rooms.get(currentRoomId);
+    if (!room) return;
+
+    const ok = requestAdditionalKeyword(room, playerId, sketchIndex);
+    if (ok) broadcastRoom(currentRoomId);
+    cb?.({ success: ok });
+  });
+
+  socket.on('keyword:fulfill', ({ sketchIndex, data, labels }, cb) => {
+    const room = rooms.get(currentRoomId);
+    if (!room) return;
+
+    const ok = fulfillKeywordRequest(room, playerId, sketchIndex, data, labels || []);
+    if (ok) broadcastRoom(currentRoomId);
+    cb?.({ success: ok });
   });
 
   socket.on('round:continue-vote', ({ vote }, cb) => {

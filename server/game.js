@@ -15,13 +15,31 @@ export const PHASES = {
 };
 
 const SESSION_TIME = 180;
-const SKETCH_TIME = 60;
+export const SKETCH_TIME = 30;
+export const SKETCH_EXTEND_SECONDS = 10;
+export const SKETCH_EXTEND_PENALTY = 1;
+export const SKETCH_EXTEND_PROMPT_SECONDS = 3;
+export const SKETCH_TIMER_WARNING_SECONDS = 3;
 export const POWER_UP_STARTING_POINTS = 50;
 export const KEYWORD_REQUEST_COST = 5;
 
 function resetKeywordRequestState(room) {
   room.keywordRequests = [null, null, null];
   room.privateSketchUpdates = {};
+}
+
+function resetSketchTimerState(room) {
+  room.extendPromptActive = false;
+  room.extendPromptTimeLeft = 0;
+  room.sketchAutoSubmitRequired = false;
+}
+
+function resetRoundAdjustments(room) {
+  room.roundAdjustments = [];
+}
+
+function logRoundAdjustment(room, playerId, label, points, kind = 'score') {
+  room.roundAdjustments.push({ playerId, label, points, kind });
 }
 
 export function createRoom(hostId, isInviteOnly = false) {
@@ -58,6 +76,10 @@ export function createRoom(hostId, isInviteOnly = false) {
     rolesLocked: false,
     keywordRequests: [null, null, null],
     privateSketchUpdates: {},
+    extendPromptActive: false,
+    extendPromptTimeLeft: 0,
+    sketchAutoSubmitRequired: false,
+    roundAdjustments: [],
   };
 }
 
@@ -161,6 +183,9 @@ export function getPublicRoomState(room, playerId) {
     },
     sessionTimeLeft: room.sessionTimeLeft,
     sketchTimeLeft: room.sketchTimeLeft,
+    extendPromptActive: isDrawer ? room.extendPromptActive : false,
+    extendPromptTimeLeft: isDrawer ? room.extendPromptTimeLeft : 0,
+    sketchAutoSubmitRequired: isDrawer ? room.sketchAutoSubmitRequired : false,
     liveDrawing: room.liveDrawing,
     roundScores: room.roundScores,
     redrawKeyframes: isDrawer ? room.redrawKeyframes : [],
@@ -308,8 +333,10 @@ function beginRound(room) {
   room.liveDrawing = null;
   room.roundScores = null;
   resetKeywordRequestState(room);
+  resetRoundAdjustments(room);
   room.sessionTimeLeft = SESSION_TIME;
   room.sketchTimeLeft = SKETCH_TIME;
+  resetSketchTimerState(room);
   room.phase = PHASES.WATCH_CLIP;
   room.players.forEach((p) => {
     p.hasGuessed = false;
@@ -324,6 +351,46 @@ export function submitKeyframes(room, playerId, indices) {
   room.phase = PHASES.DRAWING;
   room.currentSketchIndex = 0;
   room.sketchTimeLeft = SKETCH_TIME;
+  resetSketchTimerState(room);
+  return true;
+}
+
+export function tickSketchTimer(room) {
+  if (room.phase !== PHASES.DRAWING && room.phase !== PHASES.REDRAW) return;
+
+  if (room.extendPromptActive) {
+    room.extendPromptTimeLeft = Math.max(0, room.extendPromptTimeLeft - 1);
+    if (room.extendPromptTimeLeft === 0) {
+      room.extendPromptActive = false;
+      room.sketchAutoSubmitRequired = true;
+    }
+    return;
+  }
+
+  if (room.sketchTimeLeft > 0) {
+    room.sketchTimeLeft -= 1;
+    if (room.sketchTimeLeft === 0) {
+      room.extendPromptActive = true;
+      room.extendPromptTimeLeft = SKETCH_EXTEND_PROMPT_SECONDS;
+    }
+  }
+}
+
+export function extendSketchTime(room, playerId) {
+  if (room.drawerId !== playerId) return false;
+  if (!room.extendPromptActive) return false;
+  if (room.phase !== PHASES.DRAWING && room.phase !== PHASES.REDRAW) return false;
+
+  const drawer = room.players.find((p) => p.id === playerId);
+  if (drawer) {
+    drawer.score -= SKETCH_EXTEND_PENALTY;
+    logRoundAdjustment(room, playerId, 'Time extension (+10s)', -SKETCH_EXTEND_PENALTY, 'score');
+  }
+
+  room.sketchTimeLeft += SKETCH_EXTEND_SECONDS;
+  room.extendPromptActive = false;
+  room.extendPromptTimeLeft = 0;
+  room.sketchAutoSubmitRequired = false;
   return true;
 }
 
@@ -333,6 +400,7 @@ export function submitSketch(room, playerId, sketchData, labels = []) {
   room.sketches[room.currentSketchIndex].data = sketchData;
   room.sketches[room.currentSketchIndex].labels = labels;
   room.liveDrawing = null;
+  resetSketchTimerState(room);
 
   if (room.currentSketchIndex < 2) {
     room.currentSketchIndex++;
@@ -396,6 +464,13 @@ export function requestAdditionalKeyword(room, playerId, sketchIndex) {
     room.clip?.bonusKeywords?.[keyframeIndex] ?? `hint-${sketchIndex + 1}`;
 
   player.powerUpPoints -= KEYWORD_REQUEST_COST;
+  logRoundAdjustment(
+    room,
+    playerId,
+    `Keyword request (sketch ${sketchIndex + 1})`,
+    -KEYWORD_REQUEST_COST,
+    'power_up'
+  );
   room.keywordRequests[sketchIndex] = {
     requestedBy: playerId,
     requesterName: player.name,
@@ -449,6 +524,7 @@ function evaluateRound(room) {
     room.selectedKeyframes = [];
     room.currentSketchIndex = 0;
     room.sketchTimeLeft = SKETCH_TIME;
+    resetSketchTimerState(room);
     room.sketches.forEach((s) => {
       s.data = null;
       s.labels = [];
@@ -472,6 +548,7 @@ function evaluateRound(room) {
       room.redrawKeyframes = needsRedraw.map((f) => room.selectedKeyframes[f.index]);
       room.currentSketchIndex = needsRedraw[0].index;
       room.sketchTimeLeft = SKETCH_TIME;
+      resetSketchTimerState(room);
       needsRedraw.forEach((f) => {
         room.sketches[f.index].data = null;
         room.sketches[f.index].labels = [];
@@ -510,41 +587,66 @@ function calculateRoundScores(room) {
   const guessers = room.players.filter((p) => p.role === 'guesser');
   const drawer = room.players.find((p) => p.role === 'drawer');
 
+  const buildBreakdown = (playerId, bonusItems) => {
+    const adjustmentItems = (room.roundAdjustments || [])
+      .filter((a) => a.playerId === playerId)
+      .map((a) => ({ label: a.label, points: a.points, kind: a.kind }));
+
+    const items = [...bonusItems, ...adjustmentItems];
+    const scoreItems = items.filter((i) => i.kind === 'score');
+    const powerUpItems = items.filter((i) => i.kind === 'power_up');
+    const scoreNet = Math.round(scoreItems.reduce((sum, i) => sum + i.points, 0) * 10) / 10;
+    const powerUpSpent = powerUpItems.reduce((sum, i) => sum + Math.abs(i.points), 0);
+
+    return { items, scoreNet, powerUpSpent };
+  };
+
   if (drawer) {
-    let drawerPoints = 0;
-    room.sketches.forEach((s) => {
-      drawerPoints += getAverageRating(s.ratings);
-    });
+    const ratingPoints = room.sketches.reduce((sum, s) => sum + getAverageRating(s.ratings), 0);
     const correctGuesses = guessers.filter((p) => room.guesses[p.id]?.correct).length;
-    drawerPoints += correctGuesses;
+    const bonusItems = [];
+    if (ratingPoints > 0) {
+      bonusItems.push({
+        label: 'Sketch ratings',
+        points: Math.round(ratingPoints * 10) / 10,
+        kind: 'score',
+      });
+    }
+    if (correctGuesses > 0) {
+      bonusItems.push({ label: 'Correct guessers', points: correctGuesses, kind: 'score' });
+    }
+
+    const breakdown = buildBreakdown(drawer.id, bonusItems);
+    const roundPoints = Math.round((ratingPoints + correctGuesses) * 10) / 10;
+
     results.push({
       playerId: drawer.id,
       name: drawer.name,
       role: 'drawer',
-      roundPoints: Math.round(drawerPoints * 10) / 10,
-      breakdown: {
-        ratingPoints: room.sketches.reduce((sum, s) => sum + getAverageRating(s.ratings), 0),
-        correctGuessBonus: correctGuesses,
-      },
+      roundPoints,
+      breakdown,
     });
   }
 
   guessers.forEach((g) => {
-    let points = 0;
     const guess = room.guesses[g.id];
+    const bonusItems = [];
     if (guess?.correct) {
-      points = 5;
-      if (room.guessOrder[0] === g.id) points += 5;
+      bonusItems.push({ label: 'Correct guess', points: 5, kind: 'score' });
+      if (room.guessOrder[0] === g.id) {
+        bonusItems.push({ label: 'First correct bonus', points: 5, kind: 'score' });
+      }
     }
+
+    const breakdown = buildBreakdown(g.id, bonusItems);
+    const roundPoints = bonusItems.reduce((sum, i) => sum + i.points, 0);
+
     results.push({
       playerId: g.id,
       name: g.name,
       role: 'guesser',
-      roundPoints: points,
-      breakdown: {
-        correct: guess?.correct || false,
-        firstCorrect: room.guessOrder[0] === g.id,
-      },
+      roundPoints,
+      breakdown,
     });
   });
 

@@ -62,6 +62,7 @@ export default function Game() {
         state={roomState}
         onLiveUpdate={(data, labels) => emit('drawing:live', { data, labels })}
         onSubmit={(data, labels) => emit('sketch:submit', { data, labels })}
+        onExtendTime={() => emit('sketch:extend-time')}
       />
     );
   }

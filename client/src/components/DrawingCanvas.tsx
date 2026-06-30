@@ -12,6 +12,7 @@ interface Props {
   allKeyframeUrls: string[];
   videoUrl?: string;
   currentIndex: number;
+  autoSubmitSignal?: number;
   onSubmit: (data: string, labels: SketchLabel[]) => void;
   onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
 }
@@ -22,6 +23,7 @@ export default function DrawingCanvas({
   allKeyframeUrls,
   videoUrl,
   currentIndex,
+  autoSubmitSignal = 0,
   onSubmit,
   onLiveUpdate,
 }: Props) {
@@ -252,11 +254,21 @@ export default function DrawingCanvas({
 
   const handleSubmit = () => {
     if (!canFinish) return;
+    submitSketch();
+  };
+
+  const submitSketch = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || canvas.width === 0) return;
     const data = exportCanvasWithLabels(canvas, labels);
     onSubmit(data, labels);
   };
+
+  useEffect(() => {
+    if (autoSubmitSignal > 0) {
+      submitSketch();
+    }
+  }, [autoSubmitSignal]);
 
   return (
     <div className="drawing-layout">

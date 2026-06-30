@@ -47,12 +47,24 @@ export interface GuessOption {
   videoUrl?: string;
 }
 
+export interface ScoreBreakdownItem {
+  label: string;
+  points: number;
+  kind: 'score' | 'power_up';
+}
+
+export interface RoundScoreBreakdown {
+  items: ScoreBreakdownItem[];
+  scoreNet: number;
+  powerUpSpent: number;
+}
+
 export interface RoundScore {
   playerId: string;
   name: string;
   role: string;
   roundPoints: number;
-  breakdown: Record<string, unknown>;
+  breakdown: RoundScoreBreakdown;
 }
 
 export interface KeywordRequestInfo {
@@ -88,6 +100,9 @@ export interface RoomState {
   ratingProgress: { completed: number; total: number };
   sessionTimeLeft: number;
   sketchTimeLeft: number;
+  extendPromptActive: boolean;
+  extendPromptTimeLeft: number;
+  sketchAutoSubmitRequired: boolean;
   liveDrawing: LiveDrawing | null;
   roundScores: RoundScore[] | null;
   redrawKeyframes: number[];

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import GameHeader from '../components/GameHeader';
 import DrawingCanvas from '../components/DrawingCanvas';
 import type { RoomState, SketchLabel } from '../types';
@@ -6,12 +7,22 @@ interface Props {
   state: RoomState;
   onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
   onSubmit: (data: string, labels: SketchLabel[]) => void;
+  onExtendTime: () => void;
 }
 
-export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
+export default function DrawingPhase({ state, onLiveUpdate, onSubmit, onExtendTime }: Props) {
   const keyframes = state.clip?.keyframes || [];
   const selected = state.selectedKeyframes;
   const currentKf = selected[state.currentSketchIndex];
+  const [autoSubmitSignal, setAutoSubmitSignal] = useState(0);
+  const prevAutoSubmit = useRef(false);
+
+  useEffect(() => {
+    if (state.sketchAutoSubmitRequired && !prevAutoSubmit.current) {
+      setAutoSubmitSignal((n) => n + 1);
+    }
+    prevAutoSubmit.current = state.sketchAutoSubmitRequired;
+  }, [state.sketchAutoSubmitRequired]);
 
   return (
     <div className="game-page">
@@ -26,9 +37,24 @@ export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
         allKeyframeUrls={keyframes}
         videoUrl={state.clip?.videoUrl}
         currentIndex={state.currentSketchIndex}
+        autoSubmitSignal={autoSubmitSignal}
         onSubmit={onSubmit}
         onLiveUpdate={onLiveUpdate}
       />
+      {state.extendPromptActive && (
+        <div className="extend-time-overlay">
+          <div className="extend-time-dialog">
+            <h3>Time&apos;s up!</h3>
+            <p>Extend time? (+10s, -1 point)</p>
+            <p className="extend-time-countdown">
+              Auto-submit in {state.extendPromptTimeLeft}s
+            </p>
+            <button type="button" className="btn-primary" onClick={onExtendTime}>
+              Extend (+10s, -1 pt)
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

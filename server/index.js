@@ -20,12 +20,14 @@ import {
   proceedFromLockedRoleSelection,
   startNextRound,
   submitContinueVote,
+  extendSketchTime,
   submitGuess,
   submitKeyframes,
   submitRatings,
   requestAdditionalKeyword,
   fulfillKeywordRequest,
   submitSketch,
+  tickSketchTimer,
   updateLiveDrawing,
 } from './game.js';
 
@@ -78,7 +80,7 @@ function startRoomTimer(roomId) {
     }
 
     if (r.phase === PHASES.DRAWING || r.phase === PHASES.REDRAW) {
-      r.sketchTimeLeft = Math.max(0, r.sketchTimeLeft - 1);
+      tickSketchTimer(r);
     }
 
     broadcastRoom(roomId);
@@ -200,6 +202,14 @@ io.on('connection', (socket) => {
     const result = submitSketch(room, playerId, data, labels || []);
     if (result) broadcastRoom(currentRoomId);
     cb?.({ success: !!result, result });
+  });
+
+  socket.on('sketch:extend-time', (_data, cb) => {
+    const room = rooms.get(currentRoomId);
+    if (!room) return;
+    const ok = extendSketchTime(room, playerId);
+    if (ok) broadcastRoom(currentRoomId);
+    cb?.({ success: ok });
   });
 
   socket.on('guess:submit', ({ guessId }, cb) => {

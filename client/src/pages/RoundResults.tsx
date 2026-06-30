@@ -1,9 +1,52 @@
 import GameHeader from '../components/GameHeader';
-import type { RoomState } from '../types';
+import type { RoomState, RoundScore } from '../types';
 
 interface Props {
   state: RoomState;
   onContinue: () => void;
+}
+
+function formatPoints(points: number) {
+  const prefix = points >= 0 ? '+' : '';
+  return `${prefix}${points}`;
+}
+
+function ScoreBreakdown({ score }: { score: RoundScore }) {
+  const { breakdown } = score;
+  if (!breakdown?.items?.length) {
+    return <p className="breakdown-empty">No point changes this round.</p>;
+  }
+
+  return (
+    <div className="score-breakdown">
+      <ul className="breakdown-list">
+        {breakdown.items.map((item, i) => (
+          <li key={i} className={`breakdown-item breakdown-${item.kind}`}>
+            <span className="breakdown-label">{item.label}</span>
+            <span className={`breakdown-points ${item.points >= 0 ? 'positive' : 'negative'}`}>
+              {item.kind === 'power_up'
+                ? `${item.points} power-up pts`
+                : `${formatPoints(item.points)} pts`}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="breakdown-totals">
+        <div className="breakdown-total-row">
+          <span>Net score change</span>
+          <span className={breakdown.scoreNet >= 0 ? 'positive' : 'negative'}>
+            {formatPoints(breakdown.scoreNet)} pts
+          </span>
+        </div>
+        {breakdown.powerUpSpent > 0 && (
+          <div className="breakdown-total-row breakdown-power-up-total">
+            <span>Power-up points spent</span>
+            <span className="negative">{breakdown.powerUpSpent} pts</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function RoundResults({ state, onContinue }: Props) {
@@ -27,26 +70,25 @@ export default function RoundResults({ state, onContinue }: Props) {
           ))}
         </div>
 
-        <div className="score-table">
-          <h3>Round Scores</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Role</th>
-                <th>Points</th>
-              </tr>
-            </thead>
-            <tbody>
-              {state.roundScores?.map((rs) => (
-                <tr key={rs.playerId} className={rs.playerId === state.myId ? 'highlight' : ''}>
-                  <td>{rs.name}</td>
-                  <td>{rs.role}</td>
-                  <td>+{rs.roundPoints}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="score-breakdown-section">
+          <h3>Score Breakdown</h3>
+          {state.roundScores?.map((rs) => (
+            <div
+              key={rs.playerId}
+              className={`player-breakdown-card ${rs.playerId === state.myId ? 'highlight' : ''}`}
+            >
+              <div className="player-breakdown-header">
+                <div>
+                  <strong>{rs.name}</strong>
+                  <span className="player-breakdown-role">{rs.role}</span>
+                </div>
+                <span className="player-breakdown-round-total">
+                  Round bonus: {formatPoints(rs.roundPoints)} pts
+                </span>
+              </div>
+              <ScoreBreakdown score={rs} />
+            </div>
+          ))}
         </div>
 
         <div className="leaderboard">

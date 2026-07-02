@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import GameHeader from '../components/GameHeader';
 import SketchViewer from '../components/SketchViewer';
 import type { RoomState } from '../types';
@@ -54,13 +54,44 @@ export default function GuessingPhase({
   const powerUpPoints = state.myPowerUpPoints ?? 50;
   const bonusKeywordClaimed = state.bonusKeywordClaimed ?? [false, false, false];
   const myKeywordRequestStatus = state.myKeywordRequestStatus ?? ['none', 'none', 'none'];
-
+  const prevHasRated = useRef(me?.hasRated ?? false);
   const sketches = state.sketches;
+  const rerateIndices = state.rerateSketchIndices ?? [];
+  const isPartialRerate = rerateIndices.length > 0;
+
+  useEffect(() => {
+    if (prevHasRated.current && !me?.hasRated && state.phase === 'guessing') {
+      if (isPartialRerate) {
+        setRatings((prev) => {
+          const next = [...prev];
+          rerateIndices.forEach((index) => {
+            next[index] = 0;
+          });
+          return next;
+        });
+      } else {
+        setRatings([0, 0, 0]);
+      }
+    }
+    prevHasRated.current = me?.hasRated ?? false;
+  }, [me?.hasRated, state.phase, isPartialRerate, rerateIndices.join(',')]);
+
   const isDrawing = state.phase === 'drawing' || state.phase === 'redraw';
   const sketchesReadyForRating = state.phase === 'guessing';
-  const allRated = ratings.every((r) => r > 0);
+  const isRatingLocked = (index: number) =>
+    isPartialRerate && !rerateIndices.includes(index);
+  const allRated = isPartialRerate
+    ? rerateIndices.every((index) => ratings[index] > 0)
+    : ratings.every((rating) => rating > 0);
   const canSubmitAnswer = !!selectedGuess && !hasSubmittedAnswer;
   const canSubmitRating = sketchesReadyForRating && allRated && !hasSubmittedRating;
+
+  const getRatingValue = (index: number) => {
+    if (isRatingLocked(index)) {
+      return Math.round(sketches[index].lockedRating ?? 0);
+    }
+    return ratings[index];
+  };
 
   const handleSubmitAnswer = () => {
     if (!canSubmitAnswer || !selectedGuess) return;
@@ -80,7 +111,9 @@ export default function GuessingPhase({
   };
 
   const renderKeywordAction = (i: number) => {
-    if (!sketchesReadyForRating || !sketches[i].data || hasSubmittedRating) return null;
+    if (!sketchesReadyForRating || !sketches[i].data || hasSubmittedRating || isRatingLocked(i)) {
+      return null;
+    }
 
     const requestStatus = myKeywordRequestStatus[i];
 
@@ -142,23 +175,43 @@ export default function GuessingPhase({
 
         <div className="step-header">
           <span className="step-icon">⭐</span>
-          <h2>Step 2. Rate the sketches</h2>
+          <h2>
+            {isPartialRerate
+              ? 'Step 2. Re-rate the updated sketches only'
+              : 'Step 2. Rate the sketches'}
+          </h2>
         </div>
         {!sketchesReadyForRating && (
           <p className="rating-wait-msg">Waiting for the drawer to finish all sketches...</p>
         )}
+        {isPartialRerate && sketchesReadyForRating && (
+          <p className="rating-wait-msg">Only redrawn sketches can be rated again. Other ratings are locked.</p>
+        )}
         <div className={`ratings-row ${!sketchesReadyForRating ? 'ratings-disabled' : ''}`}>
-          {sketches.map((_, i) => (
-            <div key={i} className="rating-card">
-              <p>Rating of this sketch:</p>
+          {sketches.map((_, i) => {
+            const locked = isRatingLocked(i);
+            return (
+            <div key={i} className={`rating-card ${locked ? 'rating-locked' : ''}`}>
+              <p>{locked ? 'Previous rating (locked):' : 'Rating of this sketch:'}</p>
               <StarRating
-                value={ratings[i]}
-                disabled={!sketchesReadyForRating || hasSubmittedRating}
-                onChange={(v) => setRatings((prev) => { const n = [...prev]; n[i] = v; return n; })}
+                value={getRatingValue(i)}
+                disabled={!sketchesReadyForRating || hasSubmittedRating || locked}
+                onChange={(v) => {
+                  if (locked) return;
+                  setRatings((prev) => {
+                    const next = [...prev];
+                    next[i] = v;
+                    return next;
+                  });
+                }}
               />
+              {locked && (
+                <p className="rating-locked-msg">This sketch was not redrawn.</p>
+              )}
               <div className="keyword-powerup">{renderKeywordAction(i)}</div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -223,6 +276,12 @@ export default function GuessingPhase({
         </div>
         {hasSubmittedAnswer && hasSubmittedRating && (
           <p className="submitted-msg waiting-msg">Waiting for other players...</p>
+        )}
+        {hasSubmittedAnswer && !hasSubmittedRating && sketchesReadyForRating && isPartialRerate && (
+          <p className="submitted-msg waiting-msg">Please re-rate the updated sketches only.</p>
+        )}
+        {hasSubmittedAnswer && !hasSubmittedRating && sketchesReadyForRating && !isPartialRerate && (
+          <p className="submitted-msg waiting-msg">Please submit your updated sketch ratings.</p>
         )}
       </div>
     </div>

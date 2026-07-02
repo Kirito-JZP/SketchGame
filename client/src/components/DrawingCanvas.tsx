@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SketchLabel } from '../types';
 import { frameNumberToVideoTime, parseKeyframeFrameNumber } from '../utils/keyframeVideo';
-import { KEYFRAME_LABEL_COLORS, exportCanvasWithLabels } from '../utils/sketchLabels';
+import { KEYFRAME_LABEL_COLORS, eraseLabelFromCanvas, exportCanvasWithLabels } from '../utils/sketchLabels';
 
 const COLORS = ['#000000', '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#ffffff'];
 const KEYWORDS_PER_KEYFRAME = 3;
@@ -12,6 +12,10 @@ interface Props {
   allKeyframeUrls: string[];
   videoUrl?: string;
   currentIndex: number;
+  initialData?: string | null;
+  initialLabels?: SketchLabel[];
+  isRedrawMode?: boolean;
+  redrawSketchIndices?: number[];
   autoSubmitSignal?: number;
   onSubmit: (data: string, labels: SketchLabel[]) => void;
   onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
@@ -23,6 +27,10 @@ export default function DrawingCanvas({
   allKeyframeUrls,
   videoUrl,
   currentIndex,
+  initialData = null,
+  initialLabels = [],
+  isRedrawMode = false,
+  redrawSketchIndices,
   autoSubmitSignal = 0,
   onSubmit,
   onLiveUpdate,
@@ -31,14 +39,32 @@ export default function DrawingCanvas({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasDrawnRef = useRef(false);
+  const initializedRef = useRef(false);
+  const onLiveUpdateRef = useRef(onLiveUpdate);
+  onLiveUpdateRef.current = onLiveUpdate;
+  const loadExistingDrawing = Boolean(initialData);
+  const redrawQueue = redrawSketchIndices ?? [];
+  const redrawQueuePos = redrawQueue.indexOf(currentIndex);
+
+  const labelsToConfirmedSlots = (sourceLabels: SketchLabel[]) => {
+    const slots = [false, false, false];
+    sourceLabels.forEach((label) => {
+      const slotIndex = KEYFRAME_LABEL_COLORS.findIndex((color) => color === label.color);
+      if (slotIndex >= 0) slots[slotIndex] = true;
+    });
+    return slots;
+  };
+
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState('#000000');
   const [lineWidth, setLineWidth] = useState(3);
   const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
-  const [hasDrawn, setHasDrawn] = useState(false);
-  const [labels, setLabels] = useState<SketchLabel[]>([]);
+  const [hasDrawn, setHasDrawn] = useState(loadExistingDrawing);
+  const [labels, setLabels] = useState<SketchLabel[]>(isRedrawMode ? initialLabels : []);
   const [keywordInputs, setKeywordInputs] = useState(['', '', '']);
-  const [confirmedSlots, setConfirmedSlots] = useState([false, false, false]);
+  const [confirmedSlots, setConfirmedSlots] = useState(
+    isRedrawMode ? labelsToConfirmedSlots(initialLabels) : [false, false, false]
+  );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const lastPos = useRef({ x: 0, y: 0 });
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -47,13 +73,40 @@ export default function DrawingCanvas({
   const allKeywordsConfirmed = confirmedSlots.every(Boolean);
   const canFinish = hasDrawn && allKeywordsConfirmed;
 
+  const resetKeywordSlot = (slotIndex: number) => {
+    const tagColor = KEYFRAME_LABEL_COLORS[slotIndex];
+    const slotLabel = labels.find((label) => label.color === tagColor);
+    const canvas = canvasRef.current;
+
+    if (slotLabel && canvas) {
+      eraseLabelFromCanvas(canvas, slotLabel);
+    }
+
+    const remainingLabels = labels.filter((label) => label.color !== tagColor);
+    setLabels(remainingLabels);
+    setConfirmedSlots((prev) => {
+      const next = [...prev];
+      next[slotIndex] = false;
+      return next;
+    });
+    setKeywordInputs((prev) => {
+      const next = [...prev];
+      next[slotIndex] = '';
+      return next;
+    });
+
+    if (canvas && canvas.width > 0) {
+      onLiveUpdateRef.current(canvas.toDataURL('image/png'), remainingLabels);
+    }
+  };
+
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     return canvas.getContext('2d');
   }, []);
 
-  const initCanvas = useCallback(() => {
+  const initBlankCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -92,24 +145,61 @@ export default function DrawingCanvas({
     setConfirmedSlots([false, false, false]);
   }, []);
 
+  const loadExistingSketch = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !initialData || initializedRef.current) return;
+
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+    if (width === 0 || height === 0) return;
+
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, width, height);
+      initializedRef.current = true;
+      hasDrawnRef.current = true;
+      setHasDrawn(true);
+      onLiveUpdateRef.current(canvas.toDataURL('image/png'), []);
+    };
+    img.src = initialData;
+  }, [initialData]);
+
   const pushLiveUpdate = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || canvas.width === 0) return;
-    onLiveUpdate(canvas.toDataURL('image/png'), labels);
-  }, [labels, onLiveUpdate]);
+    onLiveUpdateRef.current(canvas.toDataURL('image/png'), labels);
+  }, [labels]);
 
   useEffect(() => {
-    initCanvas();
+    initializedRef.current = false;
+
+    const setupCanvas = () => {
+      if (initialData) {
+        loadExistingSketch();
+      } else {
+        initBlankCanvas();
+      }
+    };
+
+    setupCanvas();
     const raf = requestAnimationFrame(() => {
-      if (canvasRef.current?.width === 0) initCanvas();
+      if (canvasRef.current?.width === 0) setupCanvas();
     });
 
     const canvas = canvasRef.current;
     if (!canvas) return () => cancelAnimationFrame(raf);
 
     const observer = new ResizeObserver(() => {
-      if (canvas.width === 0 && canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
-        initCanvas();
+      if (canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
+        if (initialData) {
+          if (!initializedRef.current) loadExistingSketch();
+        } else if (canvas.width === 0) {
+          initBlankCanvas();
+        }
       }
     });
     observer.observe(canvas);
@@ -117,7 +207,9 @@ export default function DrawingCanvas({
       cancelAnimationFrame(raf);
       observer.disconnect();
     };
-  }, [keyframeIndex, currentIndex, initCanvas]);
+    // Only re-init when switching keyframe/sketch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyframeIndex, currentIndex]);
 
   useEffect(() => {
     pushLiveUpdate();
@@ -281,16 +373,25 @@ export default function DrawingCanvas({
         <div className="reference-thumbs">
           <p className="reference-thumbs-title">Selected keyframes</p>
           <div className="reference-thumbs-row">
-            {allKeyframes.map((kfIdx, i) => (
+            {allKeyframes.map((kfIdx, i) => {
+              const inRedrawQueue = redrawQueue.includes(i);
+              const isDone = redrawQueue.length > 0
+                ? inRedrawQueue && redrawQueue.indexOf(i) < redrawQueuePos
+                : i < currentIndex;
+              const isActive = i === currentIndex;
+              const isSkipped = redrawQueue.length > 0 && !inRedrawQueue;
+
+              return (
               <div
                 key={kfIdx}
-                className={`reference-thumb ${i === currentIndex ? 'active' : ''} ${i < currentIndex ? 'done' : ''}`}
+                className={`reference-thumb ${isActive ? 'active' : ''} ${isDone ? 'done' : ''} ${isSkipped ? 'skipped' : ''}`}
               >
-                {i < currentIndex && <span className="kf-check">✓</span>}
+                {isDone && <span className="kf-check">✓</span>}
                 <img src={allKeyframeUrls[kfIdx]} alt={`Keyframe ${kfIdx + 1}`} />
                 <span className="keyframe-label">#{kfIdx + 1}</span>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         {videoUrl && (
@@ -364,6 +465,11 @@ export default function DrawingCanvas({
         </div>
 
         <div className="keyword-inputs-section">
+          {isRedrawMode && (
+            <p className="keyword-hint">
+              Your previous drawing is loaded. Update keywords if needed, then submit when ready.
+            </p>
+          )}
           <p className="keyword-section-title">
             Keywords for keyframe #{keyframeIndex + 1} (3 keywords — confirm each, then drag onto sketch)
           </p>
@@ -379,7 +485,18 @@ export default function DrawingCanvas({
                 >
                   <span className="keyword-slot-label">Keyword {slotIndex + 1}</span>
                   {isConfirmed ? (
-                    <span className="keyword-confirmed-text">Placed on sketch — drag to reposition</span>
+                    <>
+                      <span className="keyword-confirmed-text">Placed on sketch — drag to reposition</span>
+                      {isRedrawMode && (
+                        <button
+                          type="button"
+                          className="keyword-slot-reset"
+                          onClick={() => resetKeywordSlot(slotIndex)}
+                        >
+                          Remove keyword
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <>
                       <input

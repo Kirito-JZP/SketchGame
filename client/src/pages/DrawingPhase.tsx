@@ -14,6 +14,24 @@ export default function DrawingPhase({ state, onLiveUpdate, onSubmit, onExtendTi
   const keyframes = state.clip?.keyframes || [];
   const selected = state.selectedKeyframes;
   const currentKf = selected[state.currentSketchIndex];
+  const isRedraw = state.phase === 'redraw';
+  const frozenRedrawRef = useRef<{ index: number; data: string | null; labels: SketchLabel[] }>({
+    index: -1,
+    data: null,
+    labels: [],
+  });
+  if (isRedraw && frozenRedrawRef.current.index !== state.currentSketchIndex) {
+    const sketch = state.sketches[state.currentSketchIndex];
+    frozenRedrawRef.current = {
+      index: state.currentSketchIndex,
+      data: sketch?.data ?? null,
+      labels: sketch?.labels ?? [],
+    };
+  } else if (!isRedraw && frozenRedrawRef.current.index !== -1) {
+    frozenRedrawRef.current = { index: -1, data: null, labels: [] };
+  }
+  const initialSketchData = isRedraw ? frozenRedrawRef.current.data : null;
+  const initialSketchLabels = isRedraw ? frozenRedrawRef.current.labels : [];
   const [autoSubmitSignal, setAutoSubmitSignal] = useState(0);
   const prevAutoSubmit = useRef(false);
 
@@ -28,15 +46,24 @@ export default function DrawingPhase({ state, onLiveUpdate, onSubmit, onExtendTi
     <div className="game-page">
       <GameHeader state={state} showSketchTimer />
       <div className="step-header">
-        <span className="step-icon">✏️</span>
-        <h2>Step 3. Draw based on the keyframes selected</h2>
+        <span className="step-icon">{isRedraw ? '🔄' : '✏️'}</span>
+        <h2>
+          {isRedraw
+            ? 'Redraw low-rated sketches — continue from your previous drawing'
+            : 'Step 3. Draw based on the keyframes selected'}
+        </h2>
       </div>
       <DrawingCanvas
+        key={`${state.phase}-${state.currentSketchIndex}`}
         keyframeIndex={currentKf}
         allKeyframes={selected}
         allKeyframeUrls={keyframes}
         videoUrl={state.clip?.videoUrl}
         currentIndex={state.currentSketchIndex}
+        initialData={initialSketchData}
+        initialLabels={initialSketchLabels}
+        isRedrawMode={isRedraw}
+        redrawSketchIndices={isRedraw ? state.redrawSketchIndices : undefined}
         autoSubmitSignal={autoSubmitSignal}
         onSubmit={onSubmit}
         onLiveUpdate={onLiveUpdate}

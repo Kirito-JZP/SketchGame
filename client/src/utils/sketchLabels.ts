@@ -5,6 +5,37 @@ export const KEYFRAME_LABEL_COLORS = ['#a8e6cf', '#ffb3ba', '#ffd3b6'];
 
 export const LABEL_COLORS = KEYFRAME_LABEL_COLORS;
 
+export function getLabelBounds(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number
+) {
+  const padding = 8;
+  ctx.font = 'bold 14px sans-serif';
+  const metrics = ctx.measureText(text);
+  return {
+    x: x - 4,
+    y: y - 4,
+    width: metrics.width + padding * 2 + 8,
+    height: 24 + 8,
+  };
+}
+
+export function eraseLabelFromCanvas(
+  canvas: HTMLCanvasElement,
+  label: SketchLabel
+) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const x = (label.x / 100) * canvas.width;
+  const y = (label.y / 100) * canvas.height;
+  const bounds = getLabelBounds(ctx, label.text, x, y);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+}
+
 export function drawLabelOnCanvas(
   ctx: CanvasRenderingContext2D,
   text: string,

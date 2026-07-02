@@ -23,6 +23,18 @@ export const SKETCH_TIMER_WARNING_SECONDS = 3;
 export const POWER_UP_STARTING_POINTS = 50;
 export const KEYWORD_REQUEST_COST = 5;
 
+function resetGuesserRatingSubmission(room) {
+  room.players.forEach((p) => {
+    if (p.role === 'guesser') p.hasRated = false;
+  });
+}
+
+function clearSketchRatings(room, indices) {
+  indices.forEach((i) => {
+    if (room.sketches[i]) room.sketches[i].ratings = [];
+  });
+}
+
 function resetKeywordRequestState(room) {
   room.keywordRequests = [null, null, null];
   room.privateSketchUpdates = {};
@@ -72,6 +84,8 @@ export function createRoom(hostId, isInviteOnly = false) {
     continueVotes: {},
     roundScores: null,
     redrawKeyframes: [],
+    redrawSketchIndices: [],
+    rerateSketchIndices: [],
     liveDrawing: null,
     rolesLocked: false,
     keywordRequests: [null, null, null],
@@ -155,9 +169,22 @@ export function getPublicRoomState(room, playerId) {
     selectedKeyframes: isDrawer ? room.selectedKeyframes : room.selectedKeyframes.map((_, i) => i),
     sketches: room.sketches.map((s, i) => {
       const privateUpdate = me?.role === 'guesser' ? room.privateSketchUpdates[playerId]?.[i] : null;
+      const showStoredLabels =
+        isDrawer && room.phase === PHASES.REDRAW
+          ? (s.labels ?? [])
+          : privateUpdate || s.data
+            ? []
+            : (s.labels ?? []);
       return {
         data: privateUpdate?.data ?? s.data,
-        labels: privateUpdate || s.data ? [] : (s.labels ?? []),
+        labels: showStoredLabels,
+        lockedRating:
+          me?.role === 'guesser' &&
+          room.phase === PHASES.GUESSING &&
+          room.rerateSketchIndices.length > 0 &&
+          !room.rerateSketchIndices.includes(i)
+            ? getAverageRating(s.ratings)
+            : undefined,
         ratings: room.phase === PHASES.ROUND_RESULTS ? s.ratings : undefined,
         averageRating: room.phase === PHASES.ROUND_RESULTS ? getAverageRating(s.ratings) : undefined,
         redrawCount: s.redrawCount,
@@ -189,6 +216,8 @@ export function getPublicRoomState(room, playerId) {
     liveDrawing: room.liveDrawing,
     roundScores: room.roundScores,
     redrawKeyframes: isDrawer ? room.redrawKeyframes : [],
+    redrawSketchIndices: isDrawer && room.phase === PHASES.REDRAW ? room.redrawSketchIndices : [],
+    rerateSketchIndices: room.phase === PHASES.GUESSING ? room.rerateSketchIndices : [],
     correctAnswer: room.phase === PHASES.ROUND_RESULTS ? room.clip?.title : undefined,
     myRole: me?.role,
     myId: playerId,
@@ -330,6 +359,8 @@ function beginRound(room) {
   room.guesses = {};
   room.guessOrder = [];
   room.redrawKeyframes = [];
+  room.redrawSketchIndices = [];
+  room.rerateSketchIndices = [];
   room.liveDrawing = null;
   room.roundScores = null;
   resetKeywordRequestState(room);
@@ -402,6 +433,24 @@ export function submitSketch(room, playerId, sketchData, labels = []) {
   room.liveDrawing = null;
   resetSketchTimerState(room);
 
+  if (room.phase === PHASES.REDRAW) {
+    const queue = room.redrawSketchIndices;
+    const pos = queue.indexOf(room.currentSketchIndex);
+    if (pos >= 0 && pos < queue.length - 1) {
+      room.currentSketchIndex = queue[pos + 1];
+      room.sketchTimeLeft = SKETCH_TIME;
+      return 'next_sketch';
+    }
+    room.phase = PHASES.GUESSING;
+    room.currentSketchIndex = 0;
+    room.rerateSketchIndices = [...room.redrawSketchIndices];
+    room.redrawSketchIndices = [];
+    room.redrawKeyframes = [];
+    resetGuesserRatingSubmission(room);
+    resetKeywordRequestState(room);
+    return 'guessing';
+  }
+
   if (room.currentSketchIndex < 2) {
     room.currentSketchIndex++;
     room.sketchTimeLeft = SKETCH_TIME;
@@ -437,7 +486,14 @@ export function submitRatings(room, playerId, ratings, comment) {
   if (player.hasRated) return false;
 
   ratings.forEach((rating, i) => {
-    if (rating > 0) room.sketches[i].ratings.push(rating);
+    if (rating <= 0) return;
+    if (room.rerateSketchIndices.length > 0) {
+      if (room.rerateSketchIndices.includes(i)) {
+        room.sketches[i].ratings.push(rating);
+      }
+      return;
+    }
+    room.sketches[i].ratings.push(rating);
   });
   player.hasRated = true;
   player.comment = comment;
@@ -537,6 +593,7 @@ function evaluateRound(room) {
     });
     room.guesses = {};
     room.guessOrder = [];
+    room.rerateSketchIndices = [];
     resetKeywordRequestState(room);
     return;
   }
@@ -545,22 +602,16 @@ function evaluateRound(room) {
     const needsRedraw = lowRatedFrames.filter((f) => room.sketches[f.index].redrawCount < 1);
     if (needsRedraw.length > 0) {
       room.phase = PHASES.REDRAW;
+      room.redrawSketchIndices = needsRedraw.map((f) => f.index);
       room.redrawKeyframes = needsRedraw.map((f) => room.selectedKeyframes[f.index]);
       room.currentSketchIndex = needsRedraw[0].index;
       room.sketchTimeLeft = SKETCH_TIME;
       resetSketchTimerState(room);
+      clearSketchRatings(room, needsRedraw.map((f) => f.index));
+      resetGuesserRatingSubmission(room);
       needsRedraw.forEach((f) => {
-        room.sketches[f.index].data = null;
-        room.sketches[f.index].labels = [];
-        room.sketches[f.index].ratings = [];
         room.sketches[f.index].redrawCount++;
       });
-      room.players.forEach((p) => {
-        p.hasGuessed = false;
-        p.hasRated = false;
-      });
-      room.guesses = {};
-      room.guessOrder = [];
       resetKeywordRequestState(room);
       return;
     }
@@ -579,6 +630,7 @@ function finishRound(room) {
   });
 
   saveRoundSketches(room);
+  room.rerateSketchIndices = [];
   room.phase = PHASES.ROUND_RESULTS;
 }
 

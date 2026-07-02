@@ -31,6 +31,7 @@ export interface Sketch {
   labels?: SketchLabel[];
   ratings?: number[];
   averageRating?: number;
+  lockedRating?: number;
   redrawCount: number;
   index: number;
 }
@@ -106,6 +107,8 @@ export interface RoomState {
   liveDrawing: LiveDrawing | null;
   roundScores: RoundScore[] | null;
   redrawKeyframes: number[];
+  redrawSketchIndices: number[];
+  rerateSketchIndices: number[];
   correctAnswer?: string;
   myRole: 'drawer' | 'guesser' | null;
   myId: string;

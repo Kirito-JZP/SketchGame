@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { copy } from '../copy';
 import { useSocket } from '../hooks/useSocket';
 
 type PendingAction = 'start' | 'share' | null;
@@ -30,11 +31,12 @@ export default function StudioMain() {
     setPendingAction(null);
   };
 
-  const resolveName = () => playerName.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
+  const resolveName = () =>
+    playerName.trim() || copy.common.playerNameFallback(Math.floor(Math.random() * 1000));
 
   const handleStartGame = () => {
     if (!hasClips) {
-      alert('Game resources are being created, please stay tuned.');
+      alert(copy.studioMain.alerts.noClips);
       return;
     }
     openNameModal('start');
@@ -42,7 +44,7 @@ export default function StudioMain() {
 
   const handleShare = () => {
     if (!connected) {
-      alert('Connecting to server, please try again in a moment.');
+      alert(copy.studioMain.alerts.notConnected);
       return;
     }
     openNameModal('share');
@@ -65,7 +67,7 @@ export default function StudioMain() {
         closeNameModal();
         navigate(`/join/${roomId}`, { state: { playerName: name, shareLink: link } });
       } catch {
-        alert('Failed to create a room. Please try again.');
+        alert(copy.studioMain.alerts.createRoomFailed);
       } finally {
         setLoadingShare(false);
       }
@@ -74,33 +76,33 @@ export default function StudioMain() {
 
   return (
     <div className="home-page">
-      <img src="/home-bg.png" alt="Movie Draw" className="home-bg" />
+      <img src="/home-bg.png" alt={copy.studioMain.homeAlt} className="home-bg" />
       <div className="home-actions">
         <button className="home-btn home-btn-primary" onClick={handleStartGame} disabled={!hasClips}>
-          Start Game
+          {copy.studioMain.startGame}
         </button>
         <button className="home-btn home-btn-secondary" onClick={handleShare} disabled={loadingShare}>
-          {loadingShare ? 'Creating link...' : 'Share to friends'}
+          {loadingShare ? copy.studioMain.creatingLink : copy.studioMain.shareToFriends}
         </button>
       </div>
 
       {showNameModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <h2>Enter the Game</h2>
-            <p>Enter your name to join the waiting room</p>
+            <h2>{copy.studioMain.enterGameTitle}</h2>
+            <p>{copy.studioMain.enterNameHint}</p>
             <input
               type="text"
-              placeholder="Your name"
+              placeholder={copy.common.yourName}
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
               autoFocus
             />
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={closeNameModal}>Cancel</button>
+              <button className="btn-secondary" onClick={closeNameModal}>{copy.common.cancel}</button>
               <button className="btn-primary" onClick={handleNameSubmit}>
-                {pendingAction === 'share' ? 'Create & Share' : 'Join Waiting Room'}
+                {pendingAction === 'share' ? copy.studioMain.createAndShare : copy.studioMain.joinWaitingRoom}
               </button>
             </div>
           </div>

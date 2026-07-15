@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import GameHeader from '../components/GameHeader';
+import { copy } from '../copy';
 import type { RoomState } from '../types';
 
 interface Props {
@@ -16,7 +17,7 @@ export default function WatchClip({ state, onNext }: Props) {
       <GameHeader state={state} />
       <div className="step-header">
         <span className="step-icon">🎬</span>
-        <h2>Step 1. Watch Movie Clip</h2>
+        <h2>{copy.watchClip.title}</h2>
       </div>
       <div className="video-container">
         <video
@@ -33,7 +34,7 @@ export default function WatchClip({ state, onNext }: Props) {
           disabled={!watched}
           onClick={onNext}
         >
-          Finish watching, next
+          {copy.watchClip.finishWatching}
         </button>
       </div>
     </div>

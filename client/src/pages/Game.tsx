@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { copy } from '../copy';
 import { useSocket } from '../hooks/useSocket';
 import RoleSelection from './RoleSelection';
 import WatchClip from './WatchClip';
@@ -22,7 +23,7 @@ export default function Game() {
   }, [connected, roomId, roomState?.id, joinRoom, navigate]);
 
   if (!roomState) {
-    return <div className="loading-page"><p>Loading game...</p></div>;
+    return <div className="loading-page"><p>{copy.app.loadingGame}</p></div>;
   }
 
   const phase = roomState.phase;
@@ -62,20 +63,12 @@ export default function Game() {
         state={roomState}
         onLiveUpdate={(data, labels) => emit('drawing:live', { data, labels })}
         onSubmit={(data, labels) => emit('sketch:submit', { data, labels })}
-        onExtendTime={() => emit('sketch:extend-time')}
       />
     );
   }
 
   if (phase === 'guessing' && isDrawer) {
-    return (
-      <DrawerGuessingPanel
-        state={roomState}
-        onFulfillKeyword={(sketchIndex, data, labels) =>
-          emit('keyword:fulfill', { sketchIndex, data, labels })
-        }
-      />
-    );
+    return <DrawerGuessingPanel state={roomState} />;
   }
 
   if ((phase === 'drawing' || phase === 'guessing') && isGuesser) {
@@ -85,7 +78,6 @@ export default function Game() {
         liveDrawing={liveDrawing}
         onSubmitAnswer={(guessId) => emit('guess:submit', { guessId })}
         onSubmitRating={(ratings, comment) => emit('rating:submit', { ratings, comment })}
-        onRequestKeyword={(sketchIndex) => emit('keyword:request', { sketchIndex })}
       />
     );
   }
@@ -108,5 +100,5 @@ export default function Game() {
     );
   }
 
-  return <div className="loading-page"><p>Loading phase: {phase}...</p></div>;
+  return <div className="loading-page"><p>{copy.app.loadingPhase(phase)}</p></div>;
 }

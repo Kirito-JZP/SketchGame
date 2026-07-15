@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { CLIPS_DIR, hasAnyClips } from './clips.js';
+import { copy } from './copy.js';
 import {
   PHASES,
   addPlayer,
@@ -20,14 +21,10 @@ import {
   proceedFromLockedRoleSelection,
   startNextRound,
   submitContinueVote,
-  extendSketchTime,
   submitGuess,
   submitKeyframes,
   submitRatings,
-  requestAdditionalKeyword,
-  fulfillKeywordRequest,
   submitSketch,
-  tickSketchTimer,
   updateLiveDrawing,
 } from './game.js';
 
@@ -67,34 +64,6 @@ async function broadcastRoom(roomId) {
   });
 }
 
-function startRoomTimer(roomId) {
-  const room = rooms.get(roomId);
-  if (!room || room.timerInterval) return;
-
-  room.timerInterval = setInterval(() => {
-    const r = rooms.get(roomId);
-    if (!r) return;
-
-    if (r.phase !== PHASES.WAITING && r.phase !== PHASES.ROLE_SELECTION && r.phase !== PHASES.ROUND_RESULTS && r.phase !== PHASES.CONTINUE_VOTE) {
-      r.sessionTimeLeft = Math.max(0, r.sessionTimeLeft - 1);
-    }
-
-    if (r.phase === PHASES.DRAWING || r.phase === PHASES.REDRAW) {
-      tickSketchTimer(r);
-    }
-
-    broadcastRoom(roomId);
-  }, 1000);
-}
-
-function stopRoomTimer(roomId) {
-  const room = rooms.get(roomId);
-  if (room?.timerInterval) {
-    clearInterval(room.timerInterval);
-    room.timerInterval = null;
-  }
-}
-
 io.on('connection', (socket) => {
   let currentRoomId = null;
   let playerId = socket.id;
@@ -116,7 +85,7 @@ io.on('connection', (socket) => {
       rooms.set(id, room);
       currentRoomId = id;
     } else if (roomId) {
-      cb?.({ error: 'Room not found' });
+      cb?.({ error: copy.errors.roomNotFound });
       return;
     } else {
       const existing = findOpenWaitingRoom();
@@ -146,15 +115,14 @@ io.on('connection', (socket) => {
   socket.on('room:start', (_data, cb) => {
     const room = rooms.get(currentRoomId);
     if (!room || room.hostId !== playerId) {
-      cb?.({ error: 'Not authorized' });
+      cb?.({ error: copy.errors.notAuthorized });
       return;
     }
     if (room.players.length < 2) {
-      cb?.({ error: 'Need at least 2 players' });
+      cb?.({ error: copy.errors.needTwoPlayers });
       return;
     }
     startGame(room);
-    startRoomTimer(currentRoomId);
     broadcastRoom(currentRoomId);
     cb?.({ success: true });
   });
@@ -204,14 +172,6 @@ io.on('connection', (socket) => {
     cb?.({ success: !!result, result });
   });
 
-  socket.on('sketch:extend-time', (_data, cb) => {
-    const room = rooms.get(currentRoomId);
-    if (!room) return;
-    const ok = extendSketchTime(room, playerId);
-    if (ok) broadcastRoom(currentRoomId);
-    cb?.({ success: ok });
-  });
-
   socket.on('guess:submit', ({ guessId }, cb) => {
     const room = rooms.get(currentRoomId);
     if (!room) return;
@@ -228,24 +188,6 @@ io.on('connection', (socket) => {
     submitRatings(room, playerId, ratings, comment);
     broadcastRoom(currentRoomId);
     cb?.({ success: true });
-  });
-
-  socket.on('keyword:request', ({ sketchIndex }, cb) => {
-    const room = rooms.get(currentRoomId);
-    if (!room) return;
-
-    const ok = requestAdditionalKeyword(room, playerId, sketchIndex);
-    if (ok) broadcastRoom(currentRoomId);
-    cb?.({ success: ok });
-  });
-
-  socket.on('keyword:fulfill', ({ sketchIndex, data, labels }, cb) => {
-    const room = rooms.get(currentRoomId);
-    if (!room) return;
-
-    const ok = fulfillKeywordRequest(room, playerId, sketchIndex, data, labels || []);
-    if (ok) broadcastRoom(currentRoomId);
-    cb?.({ success: ok });
   });
 
   socket.on('round:continue-vote', ({ vote }, cb) => {
@@ -267,12 +209,12 @@ io.on('connection', (socket) => {
   socket.on('round:start-next', (_data, cb) => {
     const room = rooms.get(currentRoomId);
     if (!room || room.hostId !== playerId) {
-      cb?.({ error: 'Not authorized' });
+      cb?.({ error: copy.errors.notAuthorized });
       return;
     }
     const continueCount = room.players.filter((p) => p.continueVote === true).length;
     if (continueCount < 2) {
-      cb?.({ error: 'Need at least 2 players to continue' });
+      cb?.({ error: copy.errors.needTwoPlayersToContinue });
       return;
     }
     const result = startNextRound(room);
@@ -301,7 +243,6 @@ io.on('connection', (socket) => {
     removePlayer(room, playerId);
 
     if (room.players.length === 0) {
-      stopRoomTimer(currentRoomId);
       rooms.delete(currentRoomId);
     } else {
       broadcastRoom(currentRoomId);

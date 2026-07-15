@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { copy } from '../copy';
 import type { RoomState } from '../types';
 
 interface Props {
@@ -29,12 +30,12 @@ export default function ContinueVote({ state, onVote }: Props) {
 
   return (
     <div className="continue-vote-page">
-      <h2>Round Complete!</h2>
-      <p>Do you want to play another round?</p>
+      <h2>{copy.continueVote.title}</h2>
+      <p>{copy.continueVote.prompt}</p>
 
       <div className="vote-buttons">
-        <button className="btn-primary" onClick={handleContinue}>Continue Playing</button>
-        <button className="btn-secondary" onClick={handleExit}>Exit</button>
+        <button className="btn-primary" onClick={handleContinue}>{copy.continueVote.continuePlaying}</button>
+        <button className="btn-secondary" onClick={handleExit}>{copy.continueVote.exit}</button>
       </div>
     </div>
   );

@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import GameHeader from '../components/GameHeader';
 import SketchViewer from '../components/SketchViewer';
+import { copy } from '../copy';
 import type { RoomState } from '../types';
-
-const KEYWORD_REQUEST_COST = 5;
 
 interface Props {
   state: RoomState;
   liveDrawing: { data: string; labels: import('../types').SketchLabel[]; sketchIndex: number } | null;
   onSubmitAnswer: (guessId: string) => void;
   onSubmitRating: (ratings: number[], comment: string) => void;
-  onRequestKeyword: (sketchIndex: number) => void;
 }
 
 function StarRating({
@@ -43,7 +41,6 @@ export default function GuessingPhase({
   liveDrawing,
   onSubmitAnswer,
   onSubmitRating,
-  onRequestKeyword,
 }: Props) {
   const [ratings, setRatings] = useState([0, 0, 0]);
   const [selectedGuess, setSelectedGuess] = useState<string | null>(null);
@@ -51,9 +48,6 @@ export default function GuessingPhase({
   const me = state.players.find((p) => p.id === state.myId);
   const hasSubmittedAnswer = me?.hasGuessed ?? false;
   const hasSubmittedRating = me?.hasRated ?? false;
-  const powerUpPoints = state.myPowerUpPoints ?? 50;
-  const bonusKeywordClaimed = state.bonusKeywordClaimed ?? [false, false, false];
-  const myKeywordRequestStatus = state.myKeywordRequestStatus ?? ['none', 'none', 'none'];
   const prevHasRated = useRef(me?.hasRated ?? false);
   const sketches = state.sketches;
   const rerateIndices = state.rerateSketchIndices ?? [];
@@ -110,48 +104,13 @@ export default function GuessingPhase({
     return { data: sketches[i].data, labels: [] };
   };
 
-  const renderKeywordAction = (i: number) => {
-    if (!sketchesReadyForRating || !sketches[i].data || hasSubmittedRating || isRatingLocked(i)) {
-      return null;
-    }
-
-    const requestStatus = myKeywordRequestStatus[i];
-
-    if (requestStatus === 'fulfilled') {
-      return <p className="keyword-status-msg keyword-fulfilled-msg">Updated sketch with bonus keyword</p>;
-    }
-    if (requestStatus === 'pending') {
-      return <p className="keyword-status-msg keyword-pending-msg">Waiting for drawer to add keyword...</p>;
-    }
-    if (bonusKeywordClaimed[i]) {
-      return <p className="keyword-status-msg">Bonus keyword already claimed</p>;
-    }
-    if (powerUpPoints < KEYWORD_REQUEST_COST) {
-      return (
-        <p className="keyword-status-msg keyword-insufficient-msg">
-          Need {KEYWORD_REQUEST_COST} power-up points (you have {powerUpPoints})
-        </p>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        className="btn-keyword-request"
-        onClick={() => onRequestKeyword(i)}
-      >
-        Request Additional Keyword (−{KEYWORD_REQUEST_COST} pts)
-      </button>
-    );
-  };
-
   return (
     <div className="game-page guessing-page">
       <GameHeader state={state} />
       <div className="guessing-section">
         <div className="step-header">
           <span className="step-icon">🎨</span>
-          <h2>Step 1. See the sketches</h2>
+          <h2>{copy.guessingPhase.seeSketches}</h2>
         </div>
         <div className="sketches-row">
           {sketches.map((_, i) => {
@@ -164,8 +123,8 @@ export default function GuessingPhase({
                   className="sketch-img-wrap"
                   placeholder={
                     isDrawing && liveDrawing?.sketchIndex === i
-                      ? 'Drawing in progress...'
-                      : 'Waiting for sketch...'
+                      ? copy.guessingPhase.drawingInProgress
+                      : copy.guessingPhase.waitingForSketch
                   }
                 />
               </div>
@@ -177,22 +136,22 @@ export default function GuessingPhase({
           <span className="step-icon">⭐</span>
           <h2>
             {isPartialRerate
-              ? 'Step 2. Re-rate the updated sketches only'
-              : 'Step 2. Rate the sketches'}
+              ? copy.guessingPhase.rerateSketches
+              : copy.guessingPhase.rateSketches}
           </h2>
         </div>
         {!sketchesReadyForRating && (
-          <p className="rating-wait-msg">Waiting for the drawer to finish all sketches...</p>
+          <p className="rating-wait-msg">{copy.guessingPhase.waitingDrawerFinish}</p>
         )}
         {isPartialRerate && sketchesReadyForRating && (
-          <p className="rating-wait-msg">Only redrawn sketches can be rated again. Other ratings are locked.</p>
+          <p className="rating-wait-msg">{copy.guessingPhase.partialRerateHint}</p>
         )}
         <div className={`ratings-row ${!sketchesReadyForRating ? 'ratings-disabled' : ''}`}>
           {sketches.map((_, i) => {
             const locked = isRatingLocked(i);
             return (
             <div key={i} className={`rating-card ${locked ? 'rating-locked' : ''}`}>
-              <p>{locked ? 'Previous rating (locked):' : 'Rating of this sketch:'}</p>
+              <p>{locked ? copy.guessingPhase.previousRatingLocked : copy.guessingPhase.ratingOfSketch}</p>
               <StarRating
                 value={getRatingValue(i)}
                 disabled={!sketchesReadyForRating || hasSubmittedRating || locked}
@@ -206,9 +165,8 @@ export default function GuessingPhase({
                 }}
               />
               {locked && (
-                <p className="rating-locked-msg">This sketch was not redrawn.</p>
+                <p className="rating-locked-msg">{copy.guessingPhase.sketchNotRedrawn}</p>
               )}
-              <div className="keyword-powerup">{renderKeywordAction(i)}</div>
             </div>
             );
           })}
@@ -218,7 +176,7 @@ export default function GuessingPhase({
       <div className="guessing-section guess-movie-section">
         <div className="step-header">
           <span className="step-icon">🎬</span>
-          <h2>Step 3. Guess the correct movie</h2>
+          <h2>{copy.guessingPhase.guessMovie}</h2>
         </div>
         <div className="guess-options">
           {state.guessOptions.map((opt, i) => (
@@ -228,7 +186,7 @@ export default function GuessingPhase({
               disabled={hasSubmittedAnswer}
               onClick={() => setSelectedGuess(opt.id)}
             >
-              <span className="guess-letter">{String.fromCharCode(65 + i)}</span>
+              <span className="guess-letter">{copy.common.guessLetter(i)}</span>
               {opt.videoUrl && (
                 <video
                   src={opt.videoUrl}
@@ -249,39 +207,39 @@ export default function GuessingPhase({
         <div className="guessing-actions">
           <div className="guessing-action">
             {hasSubmittedAnswer ? (
-              <p className="submitted-msg">Answer submitted!</p>
+              <p className="submitted-msg">{copy.guessingPhase.answerSubmitted}</p>
             ) : (
               <button
                 className={`btn-primary ${canSubmitAnswer ? '' : 'btn-disabled'}`}
                 disabled={!canSubmitAnswer}
                 onClick={handleSubmitAnswer}
               >
-                Submit Answer
+                {copy.guessingPhase.submitAnswer}
               </button>
             )}
           </div>
           <div className="guessing-action">
             {hasSubmittedRating ? (
-              <p className="submitted-msg">Ratings submitted!</p>
+              <p className="submitted-msg">{copy.guessingPhase.ratingsSubmitted}</p>
             ) : (
               <button
                 className={`btn-primary ${canSubmitRating ? '' : 'btn-disabled'}`}
                 disabled={!canSubmitRating}
                 onClick={handleSubmitRating}
               >
-                Submit Rating
+                {copy.guessingPhase.submitRating}
               </button>
             )}
           </div>
         </div>
         {hasSubmittedAnswer && hasSubmittedRating && (
-          <p className="submitted-msg waiting-msg">Waiting for other players...</p>
+          <p className="submitted-msg waiting-msg">{copy.guessingPhase.waitingOthers}</p>
         )}
         {hasSubmittedAnswer && !hasSubmittedRating && sketchesReadyForRating && isPartialRerate && (
-          <p className="submitted-msg waiting-msg">Please re-rate the updated sketches only.</p>
+          <p className="submitted-msg waiting-msg">{copy.guessingPhase.pleaseRerate}</p>
         )}
         {hasSubmittedAnswer && !hasSubmittedRating && sketchesReadyForRating && !isPartialRerate && (
-          <p className="submitted-msg waiting-msg">Please submit your updated sketch ratings.</p>
+          <p className="submitted-msg waiting-msg">{copy.guessingPhase.pleaseSubmitRatings}</p>
         )}
       </div>
     </div>

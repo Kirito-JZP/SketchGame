@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import GameHeader from '../components/GameHeader';
+import { copy } from '../copy';
 import type { RoomState } from '../types';
 
 interface Props {
@@ -24,7 +25,7 @@ export default function SelectKeyframes({ state, onSubmit }: Props) {
       <GameHeader state={state} />
       <div className="step-header">
         <span className="step-icon">🎬</span>
-        <h2>Step 2. Select 3 keyframes that represent the film</h2>
+        <h2>{copy.selectKeyframes.title}</h2>
       </div>
       <div className="keyframes-grid">
         {keyframes.map((url, i) => (
@@ -36,8 +37,8 @@ export default function SelectKeyframes({ state, onSubmit }: Props) {
             <div className={`keyframe-checkbox ${selected.includes(i) ? 'checked' : ''}`}>
               {selected.includes(i) && '✓'}
             </div>
-            <img src={url} alt={`Keyframe ${i + 1}`} />
-            <span className="keyframe-label">Keyframe #{i + 1}</span>
+            <img src={url} alt={copy.selectKeyframes.keyframeAlt(i + 1)} />
+            <span className="keyframe-label">{copy.selectKeyframes.keyframeLabel(i + 1)}</span>
           </button>
         ))}
       </div>
@@ -47,7 +48,7 @@ export default function SelectKeyframes({ state, onSubmit }: Props) {
           disabled={selected.length !== 3}
           onClick={() => onSubmit(selected)}
         >
-          Finish selecting, next
+          {copy.selectKeyframes.finishSelecting}
         </button>
       </div>
     </div>

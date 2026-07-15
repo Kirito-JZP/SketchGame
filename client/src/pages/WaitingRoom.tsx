@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { copy } from '../copy';
 import { useSocket } from '../hooks/useSocket';
 
 export default function WaitingRoom() {
@@ -67,7 +68,7 @@ export default function WaitingRoom() {
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2500);
     } catch {
-      alert(`Copy this link: ${shareLink}`);
+      alert(copy.waitingRoom.copyLinkFallback(shareLink));
     }
   };
 
@@ -93,19 +94,19 @@ export default function WaitingRoom() {
       <div className="waiting-page">
         <div className="modal-overlay">
           <div className="modal">
-            <h2>Join Game Room</h2>
-            <p>Enter your name to join the waiting room</p>
+            <h2>{copy.waitingRoom.joinGameRoom}</h2>
+            <p>{copy.studioMain.enterNameHint}</p>
             <input
               type="text"
-              placeholder="Your name"
+              placeholder={copy.common.yourName}
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
               autoFocus
             />
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => navigate('/')}>Cancel</button>
-              <button className="btn-primary" onClick={handleNameSubmit}>Join Waiting Room</button>
+              <button className="btn-secondary" onClick={() => navigate('/')}>{copy.common.cancel}</button>
+              <button className="btn-primary" onClick={handleNameSubmit}>{copy.studioMain.joinWaitingRoom}</button>
             </div>
           </div>
         </div>
@@ -117,8 +118,8 @@ export default function WaitingRoom() {
     return (
       <div className="waiting-page">
         <div className="waiting-card">
-          <h2>Connecting...</h2>
-          <p>{connected ? 'Joining room...' : 'Connecting to server...'}</p>
+          <h2>{copy.waitingRoom.connecting}</h2>
+          <p>{connected ? copy.waitingRoom.joiningRoom : copy.waitingRoom.connectingToServer}</p>
         </div>
       </div>
     );
@@ -134,24 +135,24 @@ export default function WaitingRoom() {
   return (
     <div className="waiting-page">
       <div className="waiting-card">
-        <h2>{isContinueLobby ? 'Waiting for Others' : 'Waiting Room'}</h2>
+        <h2>{isContinueLobby ? copy.waitingRoom.waitingForOthers : copy.waitingRoom.waitingRoom}</h2>
         {isContinueLobby && (
-          <p className="waiting-hint">You chose to continue. Waiting for other players...</p>
+          <p className="waiting-hint">{copy.waitingRoom.continueWaitingHint}</p>
         )}
-        <p className="room-code">Room Code: <strong>{roomState.id}</strong></p>
+        <p className="room-code">{copy.waitingRoom.roomCodeLabel} <strong>{roomState.id}</strong></p>
 
         <div className="player-list">
-          <h3>Players ({waitingPlayers.length})</h3>
+          <h3>{copy.waitingRoom.players(waitingPlayers.length)}</h3>
           <ul>
             {waitingPlayers.map((p, i) => (
               <li key={p.id}>
                 {p.name}
-                {p.id === roomState.hostId && <span className="host-badge">Host</span>}
+                {p.id === roomState.hostId && <span className="host-badge">{copy.common.host}</span>}
                 {isContinueLobby && p.continueVote === true && (
-                  <span className="host-badge continue-badge">Continue</span>
+                  <span className="host-badge continue-badge">{copy.common.continue}</span>
                 )}
                 {i === 0 && p.id !== roomState.hostId && !isContinueLobby && (
-                  <span className="join-order">#{i + 1}</span>
+                  <span className="join-order">{copy.common.joinOrder(i + 1)}</span>
                 )}
               </li>
             ))}
@@ -160,7 +161,7 @@ export default function WaitingRoom() {
 
         {!isContinueLobby && (
           <button className="btn-secondary share-room-btn" onClick={copyShareLink}>
-            {shareCopied ? 'Link copied!' : 'Share link with friends'}
+            {shareCopied ? copy.waitingRoom.linkCopied : copy.waitingRoom.shareLink}
           </button>
         )}
 
@@ -171,19 +172,19 @@ export default function WaitingRoom() {
             onClick={handleStart}
           >
             {readyCount < minPlayers
-              ? `Waiting for players (${readyCount}/${minPlayers})...`
-              : isContinueLobby ? 'Start Next Round' : 'Start Game'}
+              ? copy.waitingRoom.waitingForPlayers(readyCount, minPlayers)
+              : isContinueLobby ? copy.waitingRoom.startNextRound : copy.waitingRoom.startGame}
           </button>
         ) : (
           <p className="waiting-hint">
             {isContinueLobby
-              ? 'Waiting for host to start the next round...'
-              : 'Waiting for host to start the game...'}
+              ? copy.waitingRoom.waitingHostNextRound
+              : copy.waitingRoom.waitingHostStart}
           </p>
         )}
 
         {!isContinueLobby && (
-          <p className="share-hint">Friends can join via: <strong>{shareLink}</strong></p>
+          <p className="share-hint">{copy.waitingRoom.friendsJoinViaLabel} <strong>{shareLink}</strong></p>
         )}
       </div>
     </div>

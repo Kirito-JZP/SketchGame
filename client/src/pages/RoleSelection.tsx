@@ -1,3 +1,4 @@
+import { copy } from '../copy';
 import type { RoomState } from '../types';
 
 interface Props {
@@ -13,17 +14,19 @@ export default function RoleSelection({ state, onSelect }: Props) {
 
   return (
     <div className="role-selection-page">
-      <h2>{rolesLocked ? 'Roles for this round' : 'Select your role'}</h2>
+      <h2>{rolesLocked ? copy.roleSelection.rolesForRound : copy.roleSelection.selectRole}</h2>
       {rolesLocked && (
-        <p className="wait-turn">Roles rotate each round. Starting the next round shortly...</p>
+        <p className="wait-turn">{copy.roleSelection.rolesRotateHint}</p>
       )}
       {!rolesLocked && !isMyTurn && (
         <p className="wait-turn">
-          Waiting for {state.players.find((p) => p.joinOrder === state.roleSelectionIndex)?.name} to choose...
+          {copy.roleSelection.waitingForPlayer(
+            state.players.find((p) => p.joinOrder === state.roleSelectionIndex)?.name ?? ''
+          )}
         </p>
       )}
       {!rolesLocked && mustBeDrawer && isMyTurn && (
-        <p className="wait-turn">You are the last player — you must be the drawer.</p>
+        <p className="wait-turn">{copy.roleSelection.mustBeDrawer}</p>
       )}
       <div className="role-cards">
         <button
@@ -32,7 +35,7 @@ export default function RoleSelection({ state, onSelect }: Props) {
           onClick={() => onSelect('drawer')}
         >
           <span className="role-emoji">🎨</span>
-          <span className="role-name">Draw</span>
+          <span className="role-name">{copy.roleSelection.draw}</span>
         </button>
         <button
           className={`role-card ${rolesLocked || !isMyTurn || mustBeDrawer ? 'disabled' : ''}`}
@@ -40,7 +43,7 @@ export default function RoleSelection({ state, onSelect }: Props) {
           onClick={() => onSelect('guesser')}
         >
           <span className="role-emoji">💡</span>
-          <span className="role-name">Guess</span>
+          <span className="role-name">{copy.roleSelection.guess}</span>
         </button>
       </div>
       <div className="role-status">
@@ -49,14 +52,14 @@ export default function RoleSelection({ state, onSelect }: Props) {
               .sort((a, b) => a.joinOrder - b.joinOrder)
               .map((p) => (
                 <span key={p.id} className="role-status-item">
-                  {p.name}: {p.role}
+                  {copy.roleSelection.roleStatus(p.name, p.role ?? '')}
                 </span>
               ))
           : state.players
               .filter((p) => p.role)
               .map((p) => (
                 <span key={p.id} className="role-status-item">
-                  {p.name}: {p.role}
+                  {copy.roleSelection.roleStatus(p.name, p.role ?? '')}
                 </span>
               ))}
       </div>

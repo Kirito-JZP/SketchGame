@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { copy } from '../copy';
 import type { SketchLabel } from '../types';
 import { frameNumberToVideoTime, parseKeyframeFrameNumber } from '../utils/keyframeVideo';
 import { KEYFRAME_LABEL_COLORS, eraseLabelFromCanvas, exportCanvasWithLabels } from '../utils/sketchLabels';
@@ -16,7 +17,6 @@ interface Props {
   initialLabels?: SketchLabel[];
   isRedrawMode?: boolean;
   redrawSketchIndices?: number[];
-  autoSubmitSignal?: number;
   onSubmit: (data: string, labels: SketchLabel[]) => void;
   onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
 }
@@ -31,7 +31,6 @@ export default function DrawingCanvas({
   initialLabels = [],
   isRedrawMode = false,
   redrawSketchIndices,
-  autoSubmitSignal = 0,
   onSubmit,
   onLiveUpdate,
 }: Props) {
@@ -356,22 +355,16 @@ export default function DrawingCanvas({
     onSubmit(data, labels);
   };
 
-  useEffect(() => {
-    if (autoSubmitSignal > 0) {
-      submitSketch();
-    }
-  }, [autoSubmitSignal]);
-
   return (
     <div className="drawing-layout">
       <div className="reference-panel">
-        <h3>Reference Keyframes</h3>
+        <h3>{copy.drawingCanvas.referenceKeyframes}</h3>
         <div className="reference-current">
-          <img src={currentKeyframeUrl} alt={`Keyframe ${keyframeIndex + 1}`} />
-          <span className="keyframe-label">Keyframe #{keyframeIndex + 1}</span>
+          <img src={currentKeyframeUrl} alt={copy.drawingCanvas.keyframeAlt(keyframeIndex + 1)} />
+          <span className="keyframe-label">{copy.drawingCanvas.keyframeLabel(keyframeIndex + 1)}</span>
         </div>
         <div className="reference-thumbs">
-          <p className="reference-thumbs-title">Selected keyframes</p>
+          <p className="reference-thumbs-title">{copy.drawingCanvas.selectedKeyframes}</p>
           <div className="reference-thumbs-row">
             {allKeyframes.map((kfIdx, i) => {
               const inRedrawQueue = redrawQueue.includes(i);
@@ -387,8 +380,8 @@ export default function DrawingCanvas({
                 className={`reference-thumb ${isActive ? 'active' : ''} ${isDone ? 'done' : ''} ${isSkipped ? 'skipped' : ''}`}
               >
                 {isDone && <span className="kf-check">✓</span>}
-                <img src={allKeyframeUrls[kfIdx]} alt={`Keyframe ${kfIdx + 1}`} />
-                <span className="keyframe-label">#{kfIdx + 1}</span>
+                <img src={allKeyframeUrls[kfIdx]} alt={copy.drawingCanvas.keyframeAlt(kfIdx + 1)} />
+                <span className="keyframe-label">{copy.drawingCanvas.keyframeThumb(kfIdx + 1)}</span>
               </div>
               );
             })}
@@ -396,7 +389,7 @@ export default function DrawingCanvas({
         </div>
         {videoUrl && (
           <div className="reference-video">
-            <p className="reference-thumbs-title">Original clip</p>
+            <p className="reference-thumbs-title">{copy.drawingCanvas.originalClip}</p>
             <video
               ref={videoRef}
               src={videoUrl}
@@ -410,7 +403,7 @@ export default function DrawingCanvas({
       </div>
 
       <div className="draw-panel">
-        <h3>Drawing Canvas</h3>
+        <h3>{copy.drawingCanvas.drawingCanvas}</h3>
         <div
           ref={wrapperRef}
           className="canvas-wrapper"
@@ -467,11 +460,11 @@ export default function DrawingCanvas({
         <div className="keyword-inputs-section">
           {isRedrawMode && (
             <p className="keyword-hint">
-              Your previous drawing is loaded. Update keywords if needed, then submit when ready.
+              {copy.drawingCanvas.redrawLoadedHint}
             </p>
           )}
           <p className="keyword-section-title">
-            Keywords for keyframe #{keyframeIndex + 1} (3 keywords — confirm each, then drag onto sketch)
+            {copy.drawingCanvas.keywordsTitle(keyframeIndex + 1)}
           </p>
           <div className="keyword-inputs-row">
             {Array.from({ length: KEYWORDS_PER_KEYFRAME }, (_, slotIndex) => {
@@ -483,17 +476,17 @@ export default function DrawingCanvas({
                   className={`keyword-slot active ${isConfirmed ? 'confirmed' : ''}`}
                   style={{ backgroundColor: tagColor }}
                 >
-                  <span className="keyword-slot-label">Keyword {slotIndex + 1}</span>
+                  <span className="keyword-slot-label">{copy.drawingCanvas.keywordSlot(slotIndex + 1)}</span>
                   {isConfirmed ? (
                     <>
-                      <span className="keyword-confirmed-text">Placed on sketch — drag to reposition</span>
+                      <span className="keyword-confirmed-text">{copy.drawingCanvas.keywordPlaced}</span>
                       {isRedrawMode && (
                         <button
                           type="button"
                           className="keyword-slot-reset"
                           onClick={() => resetKeywordSlot(slotIndex)}
                         >
-                          Remove keyword
+                          {copy.drawingCanvas.removeKeyword}
                         </button>
                       )}
                     </>
@@ -502,7 +495,7 @@ export default function DrawingCanvas({
                       <input
                         type="text"
                         className="keyword-slot-input"
-                        placeholder="Enter keyword"
+                        placeholder={copy.drawingCanvas.enterKeyword}
                         value={keywordInputs[slotIndex]}
                         onChange={(e) => {
                           const next = [...keywordInputs];
@@ -516,7 +509,7 @@ export default function DrawingCanvas({
                         disabled={!keywordInputs[slotIndex].trim()}
                         onClick={() => confirmKeyword(slotIndex)}
                       >
-                        Confirm
+                        {copy.common.confirm}
                       </button>
                     </>
                   )}
@@ -526,8 +519,8 @@ export default function DrawingCanvas({
           </div>
           {!canFinish && (
             <p className="keyword-hint">
-              {!hasDrawn && 'Draw on the canvas. '}
-              {!allKeywordsConfirmed && 'Confirm all 3 keywords to continue.'}
+              {!hasDrawn && copy.drawingCanvas.drawHint}
+              {!allKeywordsConfirmed && copy.drawingCanvas.confirmKeywordsHint}
             </p>
           )}
         </div>
@@ -538,7 +531,7 @@ export default function DrawingCanvas({
             disabled={!canFinish}
             onClick={handleSubmit}
           >
-            Finish Drawing, Next
+            {copy.drawingCanvas.finishDrawing}
           </button>
         </div>
       </div>

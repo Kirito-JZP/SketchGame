@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { LiveDrawing, RoomState } from '../types';
+import { saveSession } from '../utils/session';
 
 interface SocketContextValue {
   connected: boolean;
@@ -39,6 +40,12 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           if (res.error) reject(new Error(res.error));
           else if (res.roomId && res.state) {
             setRoomState(res.state);
+            const me = res.state.players.find((p) => p.id === res.state!.myId);
+            if (me?.name) {
+              saveSession({ roomId: res.roomId, playerName: me.name });
+            } else if (params.playerName) {
+              saveSession({ roomId: res.roomId, playerName: params.playerName });
+            }
             resolve({ roomId: res.roomId, state: res.state });
           } else {
             reject(new Error('Failed to join room'));

@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import GameHeader from '../components/GameHeader';
 import { copy } from '../copy';
 import type { RoomState, RoundScore } from '../types';
@@ -7,9 +8,32 @@ interface Props {
   onContinue: () => void;
 }
 
+const RATING_MAX = 5;
+const RATING_PASS_THRESHOLD = 0.6; // over 60%
+
 function formatPoints(points: number) {
   const prefix = points >= 0 ? '+' : '';
   return `${prefix}${points}`;
+}
+
+function isDrawerExcellent(state: RoomState): boolean {
+  const guessers = state.players.filter((p) => p.role === 'guesser');
+  if (guessers.length === 0) return false;
+
+  const allCorrect = guessers.every((g) => state.guesses[g.id]?.correct === true);
+  if (!allCorrect) return false;
+
+  return state.sketches.every((sketch) => {
+    const avg = sketch.averageRating;
+    if (avg == null) {
+      const ratings = sketch.ratings ?? [];
+      if (ratings.length === 0) return false;
+      const computed = ratings.reduce((sum, r) => sum + r, 0) / ratings.length;
+      return computed > RATING_MAX * RATING_PASS_THRESHOLD;
+    }
+    // Each sketch's average rating must be over 60% (above 3/5).
+    return avg > RATING_MAX * RATING_PASS_THRESHOLD;
+  });
 }
 
 function ScoreBreakdown({ score }: { score: RoundScore }) {
@@ -51,6 +75,10 @@ function ScoreBreakdown({ score }: { score: RoundScore }) {
 }
 
 export default function RoundResults({ state, onContinue }: Props) {
+  const isDrawer = state.myRole === 'drawer';
+  const excellent = useMemo(() => isDrawerExcellent(state), [state]);
+  const [showDrawerPrompt, setShowDrawerPrompt] = useState(isDrawer);
+
   return (
     <div className="game-page">
       <GameHeader state={state} />
@@ -111,6 +139,19 @@ export default function RoundResults({ state, onContinue }: Props) {
           {copy.roundResults.continueOrExit}
         </button>
       </div>
+
+      {showDrawerPrompt && (
+        <div className="modal-overlay">
+          <div className="modal drawer-feedback-modal">
+            <h2>{excellent ? copy.roundResults.drawerExcellent : copy.roundResults.drawerImprove}</h2>
+            <div className="modal-actions">
+              <button className="btn-primary" type="button" onClick={() => setShowDrawerPrompt(false)}>
+                {copy.common.confirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

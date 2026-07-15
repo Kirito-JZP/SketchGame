@@ -16,6 +16,7 @@ export interface Player {
   hasGuessed: boolean;
   hasRated: boolean;
   continueVote: boolean | null;
+  connected?: boolean;
 }
 
 export interface SketchLabel {
@@ -105,4 +106,10 @@ export interface RoomState {
   canSelectRole: boolean;
   mustBeDrawer: boolean;
   continueVotes: { continue: number; exit: number; total: number } | null;
+  playerLeave: {
+    playerId: string;
+    playerName: string;
+    secondsLeft: number;
+    message: string;
+  } | null;
 }

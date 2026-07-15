@@ -31,8 +31,7 @@ export default function StudioMain() {
     setPendingAction(null);
   };
 
-  const resolveName = () =>
-    playerName.trim() || copy.common.playerNameFallback(Math.floor(Math.random() * 1000));
+  const resolveName = () => playerName.trim();
 
   const handleStartGame = () => {
     if (!hasClips) {
@@ -52,6 +51,7 @@ export default function StudioMain() {
 
   const handleNameSubmit = async () => {
     const name = resolveName();
+    if (!name) return;
 
     if (pendingAction === 'start') {
       closeNameModal();
@@ -62,12 +62,13 @@ export default function StudioMain() {
     if (pendingAction === 'share') {
       setLoadingShare(true);
       try {
-        const { roomId } = await joinRoom({ createNew: true, playerName: name });
+        const { roomId } = await joinRoom({ playerName: name });
         const link = `${window.location.origin}/join/${roomId}`;
         closeNameModal();
         navigate(`/join/${roomId}`, { state: { playerName: name, shareLink: link } });
-      } catch {
-        alert(copy.studioMain.alerts.createRoomFailed);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : copy.studioMain.alerts.createRoomFailed;
+        alert(message);
       } finally {
         setLoadingShare(false);
       }
@@ -101,7 +102,11 @@ export default function StudioMain() {
             />
             <div className="modal-actions">
               <button className="btn-secondary" onClick={closeNameModal}>{copy.common.cancel}</button>
-              <button className="btn-primary" onClick={handleNameSubmit}>
+              <button
+                className="btn-primary"
+                onClick={handleNameSubmit}
+                disabled={!playerName.trim()}
+              >
                 {pendingAction === 'share' ? copy.studioMain.createAndShare : copy.studioMain.joinWaitingRoom}
               </button>
             </div>

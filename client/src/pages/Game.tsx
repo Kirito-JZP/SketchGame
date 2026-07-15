@@ -1,7 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import PlayerLeaveBanner from '../components/PlayerLeaveBanner';
 import { copy } from '../copy';
 import { useSocket } from '../hooks/useSocket';
+import { loadSession } from '../utils/session';
 import RoleSelection from './RoleSelection';
 import WatchClip from './WatchClip';
 import SelectKeyframes from './SelectKeyframes';
@@ -11,18 +13,56 @@ import GuessingPhase from './GuessingPhase';
 import RoundResults from './RoundResults';
 import ContinueVote from './ContinueVote';
 
+function withLeaveBanner(state: import('../types').RoomState, node: React.ReactNode) {
+  return (
+    <>
+      <PlayerLeaveBanner state={state} />
+      {node}
+    </>
+  );
+}
+
 export default function Game() {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const { connected, roomState, liveDrawing, joinRoom, emit } = useSocket();
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinAttempted, setJoinAttempted] = useState(false);
 
   useEffect(() => {
     if (!connected || !roomId) return;
     if (roomState?.id === roomId) return;
-    joinRoom({ roomId }).catch(() => navigate('/'));
-  }, [connected, roomId, roomState?.id, joinRoom, navigate]);
+    if (joinAttempted || joinError) return;
 
-  if (!roomState) {
+    const session = loadSession();
+    const playerName =
+      session?.roomId === roomId || session?.roomId === 'GLOBAL'
+        ? session.playerName
+        : undefined;
+
+    if (!playerName) {
+      navigate(`/join/${roomId}`, { replace: true });
+      return;
+    }
+
+    setJoinAttempted(true);
+    joinRoom({ roomId, playerName }).catch((err: Error) => {
+      setJoinError(err.message || copy.studioMain.alerts.rejoinFailed);
+    });
+  }, [connected, roomId, roomState?.id, joinRoom, navigate, joinAttempted, joinError]);
+
+  if (joinError) {
+    return (
+      <div className="loading-page" style={{ flexDirection: 'column', gap: 16 }}>
+        <p>{joinError}</p>
+        <button className="btn-primary" type="button" onClick={() => navigate('/')}>
+          {copy.continueVote.exit}
+        </button>
+      </div>
+    );
+  }
+
+  if (!roomState || roomState.id !== roomId) {
     return <div className="loading-page"><p>{copy.app.loadingGame}</p></div>;
   }
 
@@ -31,12 +71,19 @@ export default function Game() {
   const isGuesser = roomState.myRole === 'guesser';
 
   if (phase === 'waiting') {
-    navigate('/waiting', { state: { roomId: roomState.id } });
+    navigate('/waiting', {
+      state: {
+        roomId: roomState.id,
+        playerName: roomState.players.find((p) => p.id === roomState.myId)?.name,
+      },
+      replace: true,
+    });
     return null;
   }
 
   if (phase === 'role_selection') {
-    return (
+    return withLeaveBanner(
+      roomState,
       <RoleSelection
         state={roomState}
         onSelect={(role) => emit('role:select', { role })}
@@ -45,11 +92,15 @@ export default function Game() {
   }
 
   if (phase === 'watch_clip' && isDrawer) {
-    return <WatchClip state={roomState} onNext={() => emit('clip:watched')} />;
+    return withLeaveBanner(
+      roomState,
+      <WatchClip state={roomState} onNext={() => emit('clip:watched')} />
+    );
   }
 
   if (phase === 'select_keyframes' && isDrawer) {
-    return (
+    return withLeaveBanner(
+      roomState,
       <SelectKeyframes
         state={roomState}
         onSubmit={(indices) => emit('keyframes:select', { indices })}
@@ -58,7 +109,8 @@ export default function Game() {
   }
 
   if ((phase === 'drawing' || phase === 'redraw') && isDrawer) {
-    return (
+    return withLeaveBanner(
+      roomState,
       <DrawingPhase
         state={roomState}
         onLiveUpdate={(data, labels) => emit('drawing:live', { data, labels })}
@@ -68,11 +120,12 @@ export default function Game() {
   }
 
   if (phase === 'guessing' && isDrawer) {
-    return <DrawerGuessingPanel state={roomState} />;
+    return withLeaveBanner(roomState, <DrawerGuessingPanel state={roomState} />);
   }
 
-  if ((phase === 'drawing' || phase === 'guessing') && isGuesser) {
-    return (
+  if ((phase === 'drawing' || phase === 'redraw' || phase === 'guessing') && isGuesser) {
+    return withLeaveBanner(
+      roomState,
       <GuessingPhase
         state={roomState}
         liveDrawing={liveDrawing}
@@ -82,8 +135,20 @@ export default function Game() {
     );
   }
 
+  if ((phase === 'watch_clip' || phase === 'select_keyframes') && isGuesser) {
+    return withLeaveBanner(
+      roomState,
+      <div className="game-page">
+        <div className="loading-page">
+          <p>{copy.game.waitingForDrawer}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (phase === 'round_results') {
-    return (
+    return withLeaveBanner(
+      roomState,
       <RoundResults
         state={roomState}
         onContinue={() => emit('round:proceed-vote')}
@@ -92,12 +157,17 @@ export default function Game() {
   }
 
   if (phase === 'continue_vote') {
-    return (
+    return withLeaveBanner(
+      roomState,
       <ContinueVote
         state={roomState}
         onVote={(vote) => emit('round:continue-vote', { vote })}
       />
     );
+  }
+
+  if (!roomState.myRole) {
+    return <div className="loading-page"><p>{copy.app.loadingGame}</p></div>;
   }
 
   return <div className="loading-page"><p>{copy.app.loadingPhase(phase)}</p></div>;

@@ -4,28 +4,31 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { v4 as uuidv4 } from 'uuid';
 import { CLIPS_DIR, hasAnyClips } from './clips.js';
-import { copy } from './copy.js';
+import { copy, ROOM_TIMINGS, GLOBAL_ROOM_ID } from './copy.js';
 import {
-  PHASES,
-  addPlayer,
-  advanceFromWatch,
-  checkGuessingComplete,
+  joinPlayer,
   createRoom,
   getPublicRoomState,
+  isGameInProgress,
+  isActivelyPlaying,
   proceedToContinueVote,
   removePlayer,
+  markPlayerDisconnected,
+  connectedPlayerCount,
+  abortRoundDueToPlayerLeave,
+  resetRoomToWaiting,
   selectRole,
   startGame,
   proceedFromLockedRoleSelection,
-  startNextRound,
   submitContinueVote,
   submitGuess,
   submitKeyframes,
   submitRatings,
   submitSketch,
   updateLiveDrawing,
+  advanceFromWatch,
+  normalizePlayerName,
 } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,13 +48,157 @@ app.get('/api/status', (_req, res) => {
 
 const rooms = new Map();
 
-function findOpenWaitingRoom() {
-  for (const [, room] of rooms) {
-    if (room.phase === PHASES.WAITING && !room.isInviteOnly) {
-      return room;
+/** @type {Map<string, { refreshTimer?: NodeJS.Timeout, removeTimer?: NodeJS.Timeout, leaveInterval?: NodeJS.Timeout }>} */
+const playerTimers = new Map();
+
+function timerKey(roomId, playerId) {
+  return `${roomId}:${playerId}`;
+}
+
+function clearPlayerTimers(roomId, playerId) {
+  const key = timerKey(roomId, playerId);
+  const timers = playerTimers.get(key);
+  if (!timers) return;
+  if (timers.refreshTimer) clearTimeout(timers.refreshTimer);
+  if (timers.removeTimer) clearTimeout(timers.removeTimer);
+  if (timers.leaveInterval) clearInterval(timers.leaveInterval);
+  playerTimers.delete(key);
+}
+
+function clearRoomLeaveState(room) {
+  if (!room.playerLeave) return;
+  const leaveId = room.playerLeave.playerId;
+  const key = timerKey(room.id, leaveId);
+  const timers = playerTimers.get(key);
+  if (timers?.leaveInterval) {
+    clearInterval(timers.leaveInterval);
+    timers.leaveInterval = undefined;
+    playerTimers.set(key, timers);
+  }
+  room.playerLeave = null;
+}
+
+function cancelLeaveCountdownIfRejoined(room, playerId) {
+  if (room.playerLeave?.playerId === playerId) {
+    clearRoomLeaveState(room);
+  }
+}
+
+function startOfficialRemovalTimer(roomId, playerId) {
+  const key = timerKey(roomId, playerId);
+  const existing = playerTimers.get(key) || {};
+  if (existing.removeTimer) clearTimeout(existing.removeTimer);
+
+  existing.removeTimer = setTimeout(() => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player || player.connected !== false) return;
+
+    // If leave countdown already aborted the round and removed them, skip.
+    if (!room.players.some((p) => p.id === playerId)) {
+      playerTimers.delete(key);
+      return;
+    }
+
+    removePlayer(room, playerId);
+    if (room.playerLeave?.playerId === playerId) {
+      clearRoomLeaveState(room);
+    }
+    playerTimers.delete(key);
+
+    if (room.players.length === 0) {
+      destroyRoomIfEmpty(roomId);
+      return;
+    }
+
+    if (isGameInProgress(room) && connectedPlayerCount(room) < 2) {
+      resetRoomToWaiting(room);
+    }
+
+    broadcastRoom(roomId);
+  }, ROOM_TIMINGS.RECONNECT_GRACE_MS);
+
+  playerTimers.set(key, existing);
+}
+
+function startLeaveCountdown(roomId, player) {
+  const room = rooms.get(roomId);
+  if (!room || !isActivelyPlaying(room)) return;
+
+  clearRoomLeaveState(room);
+
+  room.playerLeave = {
+    playerId: player.id,
+    playerName: player.name,
+    secondsLeft: ROOM_TIMINGS.LEAVE_COUNTDOWN_SECONDS,
+  };
+
+  const key = timerKey(roomId, player.id);
+  const existing = playerTimers.get(key) || {};
+  if (existing.leaveInterval) clearInterval(existing.leaveInterval);
+
+  existing.leaveInterval = setInterval(() => {
+    const r = rooms.get(roomId);
+    if (!r || !r.playerLeave || r.playerLeave.playerId !== player.id) {
+      if (existing.leaveInterval) clearInterval(existing.leaveInterval);
+      existing.leaveInterval = undefined;
+      playerTimers.set(key, existing);
+      return;
+    }
+
+    r.playerLeave.secondsLeft -= 1;
+    if (r.playerLeave.secondsLeft <= 0) {
+      if (existing.leaveInterval) clearInterval(existing.leaveInterval);
+      existing.leaveInterval = undefined;
+      if (existing.removeTimer) clearTimeout(existing.removeTimer);
+      existing.removeTimer = undefined;
+      playerTimers.set(key, existing);
+
+      abortRoundDueToPlayerLeave(r, player.id);
+      playerTimers.delete(key);
+
+      if (r.players.length === 0) {
+        destroyRoomIfEmpty(roomId);
+      } else {
+        broadcastRoom(roomId);
+      }
+      return;
+    }
+
+    broadcastRoom(roomId);
+  }, 1000);
+
+  playerTimers.set(key, existing);
+  broadcastRoom(roomId);
+}
+
+function getOrCreateGlobalRoom() {
+  let room = rooms.get(GLOBAL_ROOM_ID);
+  if (!room) {
+    room = createRoom(null, false);
+    room.id = GLOBAL_ROOM_ID;
+    rooms.set(GLOBAL_ROOM_ID, room);
+  }
+  return room;
+}
+
+function destroyRoomIfEmpty(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  if (room.players.length > 0) return;
+
+  for (const key of [...playerTimers.keys()]) {
+    if (key.startsWith(`${roomId}:`)) {
+      const timers = playerTimers.get(key);
+      if (timers?.refreshTimer) clearTimeout(timers.refreshTimer);
+      if (timers?.removeTimer) clearTimeout(timers.removeTimer);
+      if (timers?.leaveInterval) clearInterval(timers.leaveInterval);
+      playerTimers.delete(key);
     }
   }
-  return null;
+
+  rooms.delete(roomId);
 }
 
 async function broadcastRoom(roomId) {
@@ -64,6 +211,55 @@ async function broadcastRoom(roomId) {
   });
 }
 
+function handleConfirmedDisconnect(roomId, playerId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  const player = room.players.find((p) => p.id === playerId);
+  // Rejoined during refresh grace — nothing to do.
+  if (!player || player.connected !== false) return;
+
+  if (!isGameInProgress(room)) {
+    removePlayer(room, playerId);
+    if (room.players.length === 0) {
+      destroyRoomIfEmpty(roomId);
+    } else {
+      broadcastRoom(roomId);
+    }
+    return;
+  }
+
+  startOfficialRemovalTimer(roomId, playerId);
+
+  if (isActivelyPlaying(room)) {
+    startLeaveCountdown(roomId, player);
+  } else {
+    broadcastRoom(roomId);
+  }
+}
+
+function scheduleDisconnect(roomId, playerId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  // Soft-disconnect immediately so a page refresh can reclaim the same name
+  // without hitting "name already taken". Leave countdown starts only after
+  // the refresh grace window if they do not return.
+  markPlayerDisconnected(room, playerId);
+
+  const key = timerKey(roomId, playerId);
+  const existing = playerTimers.get(key) || {};
+  if (existing.refreshTimer) clearTimeout(existing.refreshTimer);
+
+  existing.refreshTimer = setTimeout(() => {
+    existing.refreshTimer = undefined;
+    playerTimers.set(key, existing);
+    handleConfirmedDisconnect(roomId, playerId);
+  }, ROOM_TIMINGS.REFRESH_GRACE_MS);
+
+  playerTimers.set(key, existing);
+}
+
 io.on('connection', (socket) => {
   let currentRoomId = null;
   let playerId = socket.id;
@@ -71,40 +267,54 @@ io.on('connection', (socket) => {
   socket.on('room:join', async ({ roomId, playerName, createNew }, cb) => {
     let room;
 
-    if (currentRoomId && currentRoomId !== roomId) {
+    if (currentRoomId && currentRoomId !== roomId && currentRoomId !== GLOBAL_ROOM_ID) {
       socket.leave(currentRoomId);
     }
 
-    if (roomId && rooms.has(roomId)) {
-      room = rooms.get(roomId);
-      currentRoomId = roomId;
-    } else if (createNew) {
-      const id = uuidv4().slice(0, 8).toUpperCase();
-      room = createRoom(playerId, true);
-      room.id = id;
-      rooms.set(id, room);
-      currentRoomId = id;
-    } else if (roomId) {
-      cb?.({ error: copy.errors.roomNotFound });
-      return;
+    const requestedId = roomId || (createNew ? GLOBAL_ROOM_ID : null) || GLOBAL_ROOM_ID;
+
+    if (requestedId === GLOBAL_ROOM_ID || !requestedId) {
+      room = getOrCreateGlobalRoom();
+      currentRoomId = GLOBAL_ROOM_ID;
+    } else if (rooms.has(requestedId)) {
+      room = rooms.get(requestedId);
+      currentRoomId = requestedId;
     } else {
-      const existing = findOpenWaitingRoom();
-      if (existing) {
-        room = existing;
-        currentRoomId = existing.id;
-      } else {
-        const id = uuidv4().slice(0, 8).toUpperCase();
-        room = createRoom(playerId, false);
-        room.id = id;
-        rooms.set(id, room);
-        currentRoomId = id;
+      // Stale invite / session IDs: fall back to the global room so Start Game still works.
+      room = getOrCreateGlobalRoom();
+      currentRoomId = GLOBAL_ROOM_ID;
+    }
+
+    const prior = room.players.find(
+      (p) => normalizePlayerName(p.name) === normalizePlayerName(playerName)
+    );
+    const priorId = prior?.id;
+
+    // Refresh race: new tab may join before the old socket's disconnect fires.
+    // If the prior seat's socket is already gone, soft-disconnect so reclaim works.
+    if (prior && prior.connected !== false && prior.id !== socket.id) {
+      const priorSocket = io.sockets.sockets.get(prior.id);
+      if (!priorSocket || !priorSocket.connected) {
+        markPlayerDisconnected(room, prior.id);
       }
     }
 
-    socket.join(currentRoomId);
-    addPlayer(room, playerId, playerName);
+    const result = joinPlayer(room, socket.id, playerName);
+    if (!result.ok) {
+      currentRoomId = null;
+      cb?.({ error: result.error });
+      return;
+    }
 
-    if (room.players.length === 1) {
+    socket.join(currentRoomId);
+    playerId = result.player.id;
+
+    // Cancel pending disconnect/leave timers for this seat (old id + new id).
+    if (priorId) clearPlayerTimers(currentRoomId, priorId);
+    clearPlayerTimers(currentRoomId, playerId);
+    cancelLeaveCountdownIfRejoined(room, playerId);
+
+    if (room.players.length === 1 || !room.players.some((p) => p.id === room.hostId)) {
       room.hostId = playerId;
     }
 
@@ -118,7 +328,8 @@ io.on('connection', (socket) => {
       cb?.({ error: copy.errors.notAuthorized });
       return;
     }
-    if (room.players.length < 2) {
+    const ready = room.players.filter((p) => p.connected !== false).length;
+    if (ready < 2) {
       cb?.({ error: copy.errors.needTwoPlayers });
       return;
     }
@@ -157,7 +368,7 @@ io.on('connection', (socket) => {
     updateLiveDrawing(room, playerId, data, labels || []);
     const payload = { data, labels: labels || [], sketchIndex: room.currentSketchIndex };
     room.players
-      .filter((p) => p.role === 'guesser')
+      .filter((p) => p.role === 'guesser' && p.connected !== false)
       .forEach((p) => {
         const guesserSocket = io.sockets.sockets.get(p.id);
         if (guesserSocket) guesserSocket.emit('drawing:live', payload);
@@ -193,9 +404,36 @@ io.on('connection', (socket) => {
   socket.on('round:continue-vote', ({ vote }, cb) => {
     const room = rooms.get(currentRoomId);
     if (!room) return;
-    submitContinueVote(room, playerId, vote);
-    broadcastRoom(currentRoomId);
-    cb?.({ success: true });
+
+    const outcome = submitContinueVote(room, playerId, vote);
+
+    if (outcome.action === 'next_round' && outcome.result) {
+      broadcastRoom(currentRoomId);
+      if (outcome.result === 'locked') {
+        setTimeout(() => {
+          const r = rooms.get(currentRoomId);
+          if (!r) return;
+          if (proceedFromLockedRoleSelection(r)) {
+            broadcastRoom(currentRoomId);
+          }
+        }, 3000);
+      }
+      cb?.({ success: true, action: outcome.action });
+      return;
+    }
+
+    if (outcome.removed) {
+      socket.leave(currentRoomId);
+      currentRoomId = null;
+    }
+
+    if (room.players.length === 0) {
+      destroyRoomIfEmpty(room.id);
+    } else {
+      broadcastRoom(room.id);
+    }
+
+    cb?.({ success: true, action: outcome.action });
   });
 
   socket.on('round:proceed-vote', (_data, cb) => {
@@ -206,47 +444,13 @@ io.on('connection', (socket) => {
     cb?.({ success: true });
   });
 
-  socket.on('round:start-next', (_data, cb) => {
-    const room = rooms.get(currentRoomId);
-    if (!room || room.hostId !== playerId) {
-      cb?.({ error: copy.errors.notAuthorized });
-      return;
-    }
-    const continueCount = room.players.filter((p) => p.continueVote === true).length;
-    if (continueCount < 2) {
-      cb?.({ error: copy.errors.needTwoPlayersToContinue });
-      return;
-    }
-    const result = startNextRound(room);
-    if (!result) {
-      cb?.({ success: false });
-      return;
-    }
-    broadcastRoom(currentRoomId);
-    if (result === 'locked') {
-      setTimeout(() => {
-        const r = rooms.get(currentRoomId);
-        if (!r) return;
-        if (proceedFromLockedRoleSelection(r)) {
-          broadcastRoom(currentRoomId);
-        }
-      }, 3000);
-    }
-    cb?.({ success: true });
-  });
-
   socket.on('disconnect', () => {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (!room) return;
 
-    removePlayer(room, playerId);
-
-    if (room.players.length === 0) {
-      rooms.delete(currentRoomId);
-    } else {
-      broadcastRoom(currentRoomId);
-    }
+    // Brief grace so a page refresh can reconnect without triggering leave flow.
+    scheduleDisconnect(currentRoomId, playerId);
   });
 });
 

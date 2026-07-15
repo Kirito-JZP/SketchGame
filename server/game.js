@@ -1,6 +1,6 @@
 import { pickGuessOptions, pickRandomClipFromAnyCategory } from './clips.js';
 import { saveRoundSketches } from './sketchStorage.js';
-import { copy } from './copy.js';
+import { copy, ROOM_TIMINGS } from './copy.js';
 
 export const PHASES = {
   WAITING: 'waiting',
@@ -67,35 +67,215 @@ export function createRoom(hostId, isInviteOnly = false) {
     liveDrawing: null,
     rolesLocked: false,
     roundAdjustments: [],
+    playerLeave: null,
   };
 }
 
-export function addPlayer(room, playerId, playerName) {
-  const existing = room.players.find((p) => p.id === playerId);
-  if (existing) {
-    if (playerName) existing.name = playerName;
-    return existing;
+export function normalizePlayerName(name) {
+  return (name || '').trim().toLowerCase();
+}
+
+export function isGameInProgress(room) {
+  return room.phase !== PHASES.WAITING;
+}
+
+export function isActivelyPlaying(room) {
+  return (
+    room.phase !== PHASES.WAITING &&
+    room.phase !== PHASES.CONTINUE_VOTE &&
+    room.phase !== PHASES.ROUND_RESULTS
+  );
+}
+
+function remapPlayerId(map, oldId, newId) {
+  if (!map || !(oldId in map) || oldId === newId) return;
+  map[newId] = map[oldId];
+  delete map[oldId];
+}
+
+function reclaimPlayerSeat(room, player, newSocketId) {
+  const oldId = player.id;
+  if (oldId === newSocketId) {
+    player.connected = true;
+    player.disconnectedAt = null;
+    return player;
+  }
+
+  player.id = newSocketId;
+  player.connected = true;
+  player.disconnectedAt = null;
+
+  if (room.hostId === oldId) room.hostId = newSocketId;
+  if (room.drawerId === oldId) room.drawerId = newSocketId;
+
+  remapPlayerId(room.guesses, oldId, newSocketId);
+  remapPlayerId(room.continueVotes, oldId, newSocketId);
+
+  room.guessOrder = room.guessOrder.map((id) => (id === oldId ? newSocketId : id));
+  room.roundAdjustments = (room.roundAdjustments || []).map((a) =>
+    a.playerId === oldId ? { ...a, playerId: newSocketId } : a
+  );
+  if (room.roundScores) {
+    room.roundScores = room.roundScores.map((rs) =>
+      rs.playerId === oldId ? { ...rs, playerId: newSocketId } : rs
+    );
+  }
+  if (room.playerLeave?.playerId === oldId) {
+    room.playerLeave.playerId = newSocketId;
+  }
+
+  return player;
+}
+
+function canReclaimDisconnectedPlayer(player) {
+  if (player.connected !== false) return false;
+  if (!player.disconnectedAt) return true;
+  return Date.now() - player.disconnectedAt <= ROOM_TIMINGS.RECONNECT_GRACE_MS;
+}
+
+/**
+ * Join or reconnect a player by unique name.
+ */
+export function joinPlayer(room, socketId, playerName) {
+  const bySocket = room.players.find((p) => p.id === socketId);
+  if (bySocket) {
+    if (playerName) bySocket.name = playerName.trim() || bySocket.name;
+    bySocket.connected = true;
+    bySocket.disconnectedAt = null;
+    return { ok: true, player: bySocket, reconnected: true };
+  }
+
+  const trimmed = (playerName || '').trim();
+  const normalized = normalizePlayerName(trimmed);
+  if (!normalized) {
+    return { ok: false, error: copy.errors.nameRequired };
+  }
+
+  const byName = room.players.find((p) => normalizePlayerName(p.name) === normalized);
+  if (byName) {
+    // Another live client is using this name.
+    if (byName.connected !== false && byName.id !== socketId) {
+      return { ok: false, error: copy.errors.nameTaken };
+    }
+    // Soft-disconnected (refresh / network blip) — reclaim seat and state.
+    if (byName.connected === false && !canReclaimDisconnectedPlayer(byName)) {
+      return { ok: false, error: copy.errors.nameTaken };
+    }
+    reclaimPlayerSeat(room, byName, socketId);
+    byName.name = trimmed;
+    return { ok: true, player: byName, reconnected: true };
+  }
+
+  if (isGameInProgress(room)) {
+    return { ok: false, error: copy.errors.gameAlreadyStarted };
   }
 
   const player = {
-    id: playerId,
-    name: playerName || copy.defaultPlayerName(room.players.length + 1),
+    id: socketId,
+    name: trimmed,
     role: null,
     score: 0,
     joinOrder: room.players.length,
     hasGuessed: false,
     hasRated: false,
     continueVote: null,
+    connected: true,
+    disconnectedAt: null,
   };
   room.players.push(player);
+  return { ok: true, player, reconnected: false };
+}
+
+export function markPlayerDisconnected(room, playerId) {
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return null;
+  player.connected = false;
+  player.disconnectedAt = Date.now();
   return player;
 }
 
 export function removePlayer(room, playerId) {
+  const player = room.players.find((p) => p.id === playerId);
   room.players = room.players.filter((p) => p.id !== playerId);
+  delete room.guesses[playerId];
+  delete room.continueVotes[playerId];
+  room.guessOrder = room.guessOrder.filter((id) => id !== playerId);
+  room.roundAdjustments = (room.roundAdjustments || []).filter((a) => a.playerId !== playerId);
+
   if (room.hostId === playerId && room.players.length > 0) {
-    room.hostId = room.players[0].id;
+    const nextHost = room.players.find((p) => p.connected !== false) || room.players[0];
+    room.hostId = nextHost.id;
   }
+
+  if (room.drawerId === playerId) {
+    room.drawerId = null;
+  }
+
+  if (room.playerLeave?.playerId === playerId) {
+    room.playerLeave = null;
+  }
+
+  return player || null;
+}
+
+export function connectedPlayerCount(room) {
+  return room.players.filter((p) => p.connected !== false).length;
+}
+
+export function clearRoundData(room) {
+  room.categoryId = null;
+  room.categoryFolder = null;
+  room.clip = null;
+  room.guessOptions = [];
+  room.selectedKeyframes = [];
+  room.sketches = [
+    { data: null, labels: [], ratings: [], redrawCount: 0 },
+    { data: null, labels: [], ratings: [], redrawCount: 0 },
+    { data: null, labels: [], ratings: [], redrawCount: 0 },
+  ];
+  room.currentSketchIndex = 0;
+  room.drawerId = null;
+  room.roleSelectionIndex = 0;
+  room.drawerChosen = false;
+  room.guesses = {};
+  room.guessOrder = [];
+  room.continueVotes = {};
+  room.roundScores = null;
+  room.redrawKeyframes = [];
+  room.redrawSketchIndices = [];
+  room.rerateSketchIndices = [];
+  room.liveDrawing = null;
+  room.rolesLocked = false;
+  room.roundAdjustments = [];
+  room.playerLeave = null;
+  room.players.forEach((p) => {
+    p.role = null;
+    p.hasGuessed = false;
+    p.hasRated = false;
+    p.continueVote = null;
+  });
+}
+
+/** End current round and open waiting for new / remaining players. */
+export function resetRoomToWaiting(room) {
+  clearRoundData(room);
+  room.phase = PHASES.WAITING;
+  room.round = 0;
+  room.players.forEach((p) => {
+    p.score = 0;
+  });
+  if (room.players.length > 0) {
+    const host = room.players.find((p) => p.connected !== false) || room.players[0];
+    room.hostId = host.id;
+  }
+  return room;
+}
+
+/** Abort active round because a player timed out after leaving. */
+export function abortRoundDueToPlayerLeave(room, playerId) {
+  removePlayer(room, playerId);
+  resetRoomToWaiting(room);
+  return room;
 }
 
 export function getPublicRoomState(room, playerId) {
@@ -117,7 +297,16 @@ export function getPublicRoomState(room, playerId) {
       hasGuessed: p.hasGuessed,
       hasRated: p.hasRated,
       continueVote: p.continueVote,
+      connected: p.connected !== false,
     })),
+    playerLeave: room.playerLeave
+      ? {
+          playerId: room.playerLeave.playerId,
+          playerName: room.playerLeave.playerName,
+          secondsLeft: room.playerLeave.secondsLeft,
+          message: copy.playerLeft(room.playerLeave.playerName),
+        }
+      : null,
     round: room.round,
     clip: room.clip
       ? {
@@ -552,21 +741,39 @@ export function advanceFromWatch(room, playerId) {
 
 export function submitContinueVote(room, playerId, vote) {
   const player = room.players.find((p) => p.id === playerId);
-  if (!player) return false;
+  if (!player) return { action: 'none' };
 
   if (vote === false) {
     removePlayer(room, playerId);
-    delete room.continueVotes[playerId];
-    return true;
+    const remaining = room.players.filter((p) => p.connected !== false);
+    if (remaining.length < 2) {
+      resetRoomToWaiting(room);
+      return { action: 'open_waiting', removed: true };
+    }
+    // Someone declined — open waiting for new players; keep remaining.
+    resetRoomToWaiting(room);
+    return { action: 'open_waiting', removed: true };
   }
 
   player.continueVote = true;
   room.continueVotes[playerId] = true;
-  return true;
+
+  const remaining = room.players.filter((p) => p.connected !== false);
+  const allContinued =
+    remaining.length >= 2 && remaining.every((p) => p.continueVote === true);
+
+  if (allContinued) {
+    const result = startNextRound(room);
+    return { action: 'next_round', result };
+  }
+
+  return { action: 'waiting_votes' };
 }
 
 export function startNextRound(room) {
-  const continueCount = room.players.filter((p) => p.continueVote === true).length;
+  const continueCount = room.players.filter(
+    (p) => p.connected !== false && p.continueVote === true
+  ).length;
   if (continueCount < 2) return false;
 
   room.continueVotes = {};
@@ -606,4 +813,5 @@ export function proceedToContinueVote(room) {
     p.continueVote = null;
   });
   room.continueVotes = {};
+  room.playerLeave = null;
 }

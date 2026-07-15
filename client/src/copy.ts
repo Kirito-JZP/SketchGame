@@ -32,11 +32,21 @@ export const copy = {
       noClips: 'Game resources are being created, please stay tuned.',
       notConnected: 'Connecting to server, please try again in a moment.',
       createRoomFailed: 'Failed to create a room. Please try again.',
+      gameAlreadyStarted: 'Game already started, cannot join',
+      nameTaken: 'This name is already taken, please choose another name.',
+      rejoinFailed: 'Could not rejoin the game. Please try again from the home page.',
     },
+  },
+
+  game: {
+    waitingForDrawer: 'Waiting for the drawer to finish preparing sketches...',
+    playerLeftCountdown: (message: string, seconds: number) =>
+      `${message} Waiting ${seconds}s for them to return...`,
   },
 
   waitingRoom: {
     joinGameRoom: 'Join Game Room',
+    tryAnotherName: 'Retry',
     connecting: 'Connecting...',
     joiningRoom: 'Joining room...',
     connectingToServer: 'Connecting to server...',
@@ -152,6 +162,8 @@ export const copy = {
     avgRating: (avg: string) => `Avg Rating: ${avg}/5`,
     scoreBreakdown: 'Score Breakdown',
     noPointChanges: 'No point changes this round.',
+    drawerExcellent: 'Amazing, Good Job!',
+    drawerImprove: 'Do better next time!',
     netScoreChange: 'Net score change',
     powerUpSpent: 'Power-up points spent',
     roundBonus: (points: string) => `Round bonus: ${points} pts`,

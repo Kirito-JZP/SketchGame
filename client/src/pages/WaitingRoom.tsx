@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { copy } from '../copy';
 import { useSocket } from '../hooks/useSocket';
+import { loadSession } from '../utils/session';
+
+const GLOBAL_ROOM_ID = 'GLOBAL';
 
 export default function WaitingRoom() {
   const { roomId: roomIdParam } = useParams();
@@ -12,54 +15,81 @@ export default function WaitingRoom() {
   const [showNameModal, setShowNameModal] = useState(false);
   const [playerName, setPlayerName] = useState('');
   const [nameSubmitted, setNameSubmitted] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinAttempted, setJoinAttempted] = useState(false);
 
   const state = location.state as {
-    createNew?: boolean;
     playerName?: string;
     roomId?: string;
     shareLink?: string;
   };
 
-  const needsName = Boolean(roomIdParam && !state?.playerName && !state?.roomId);
+  const session = loadSession();
+  // Prefer URL / navigation state; otherwise always use the single global room.
+  // Do not reuse stale session room IDs (they cause "Room not found" after restarts).
+  const targetRoomId = roomIdParam || state?.roomId || GLOBAL_ROOM_ID;
+  const sessionNameForRoom =
+    session?.playerName &&
+    (session.roomId === targetRoomId || session.roomId === GLOBAL_ROOM_ID)
+      ? session.playerName
+      : undefined;
+
+  const resolvedName = state?.playerName || sessionNameForRoom || (nameSubmitted ? playerName.trim() : '');
+  const needsName = !resolvedName;
 
   useEffect(() => {
-    if (needsName && !nameSubmitted) {
+    if (sessionNameForRoom && !playerName) {
+      setPlayerName(sessionNameForRoom);
+    } else if (state?.playerName && !playerName) {
+      setPlayerName(state.playerName);
+    }
+  }, [sessionNameForRoom, state?.playerName, playerName]);
+
+  useEffect(() => {
+    if (needsName) {
       setShowNameModal(true);
       return;
     }
-    if (!connected) return;
-    if (needsName && !nameSubmitted) return;
+    if (!connected || joinAttempted || joinError) return;
 
-    const name = state?.playerName || playerName.trim() || undefined;
-    const roomId = roomIdParam || state?.roomId;
-
+    setJoinAttempted(true);
     joinRoom({
-      roomId,
-      createNew: state?.createNew === true && !roomId,
-      playerName: name,
-    }).catch(() => navigate('/'));
+      roomId: targetRoomId,
+      playerName: resolvedName,
+    }).catch((err: Error) => {
+      // Keep joinAttempted true so we do not retry into a Connecting ↔ error flicker.
+      setJoinError(err.message || copy.studioMain.alerts.rejoinFailed);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, roomIdParam, state?.createNew, state?.roomId, state?.playerName, nameSubmitted, joinRoom]);
+  }, [connected, targetRoomId, resolvedName, joinRoom, needsName, joinAttempted, joinError]);
 
   useEffect(() => {
     if (!roomState) return;
-
-    const myVote = roomState.players.find((p) => p.id === roomState.myId)?.continueVote;
-    const inContinueLobby = roomState.phase === 'continue_vote' && myVote === true;
-
-    if (inContinueLobby) return;
-
+    // Don't kick to /game if this client never successfully joined.
+    if (joinError) return;
     if (roomState.phase !== 'waiting') {
       navigate(`/game/${roomState.id}`, { replace: true });
     }
-  }, [roomState, navigate]);
+  }, [roomState, navigate, joinError]);
 
   const handleNameSubmit = () => {
+    if (!playerName.trim()) return;
     setNameSubmitted(true);
     setShowNameModal(false);
+    setJoinError(null);
+    setJoinAttempted(false);
   };
 
-  const shareLink = state?.shareLink || (roomState ? `${window.location.origin}/join/${roomState.id}` : '');
+  const handleRetryWithName = () => {
+    setJoinError(null);
+    setJoinAttempted(false);
+    setNameSubmitted(false);
+    setShowNameModal(true);
+  };
+
+  const shareLink =
+    state?.shareLink ||
+    (roomState ? `${window.location.origin}/join/${roomState.id}` : '');
 
   const copyShareLink = async () => {
     if (!shareLink) return;
@@ -72,14 +102,8 @@ export default function WaitingRoom() {
     }
   };
 
-  const isContinueLobby = roomState?.phase === 'continue_vote';
-  const continueCount = roomState?.players.filter((p) => p.continueVote === true).length ?? 0;
-
   const handleStart = async () => {
-    const res = isContinueLobby
-      ? await emit('round:start-next')
-      : await emit('room:start');
-
+    const res = await emit('room:start');
     if (res.error) {
       alert(res.error);
       return;
@@ -89,7 +113,26 @@ export default function WaitingRoom() {
     }
   };
 
-  if (showNameModal) {
+  if (joinError) {
+    return (
+      <div className="waiting-page">
+        <div className="waiting-card">
+          <h2>{copy.waitingRoom.joinGameRoom}</h2>
+          <p className="waiting-hint">{joinError}</p>
+          <div className="modal-actions" style={{ justifyContent: 'center' }}>
+            <button className="btn-secondary" type="button" onClick={handleRetryWithName}>
+              {copy.waitingRoom.tryAnotherName}
+            </button>
+            <button className="btn-primary" type="button" onClick={() => navigate('/')}>
+              {copy.continueVote.exit}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (showNameModal || needsName) {
     return (
       <div className="waiting-page">
         <div className="modal-overlay">
@@ -106,7 +149,13 @@ export default function WaitingRoom() {
             />
             <div className="modal-actions">
               <button className="btn-secondary" onClick={() => navigate('/')}>{copy.common.cancel}</button>
-              <button className="btn-primary" onClick={handleNameSubmit}>{copy.studioMain.joinWaitingRoom}</button>
+              <button
+                className="btn-primary"
+                onClick={handleNameSubmit}
+                disabled={!playerName.trim()}
+              >
+                {copy.studioMain.joinWaitingRoom}
+              </button>
             </div>
           </div>
         </div>
@@ -125,45 +174,31 @@ export default function WaitingRoom() {
     );
   }
 
-  const waitingPlayers = isContinueLobby
-    ? roomState.players.filter((p) => p.continueVote === true)
-    : roomState.players;
-
-  const minPlayers = isContinueLobby ? 2 : 2;
-  const readyCount = isContinueLobby ? continueCount : roomState.players.length;
+  const connectedPlayers = roomState.players.filter((p) => p.connected !== false);
+  const minPlayers = 2;
+  const readyCount = connectedPlayers.length;
 
   return (
     <div className="waiting-page">
       <div className="waiting-card">
-        <h2>{isContinueLobby ? copy.waitingRoom.waitingForOthers : copy.waitingRoom.waitingRoom}</h2>
-        {isContinueLobby && (
-          <p className="waiting-hint">{copy.waitingRoom.continueWaitingHint}</p>
-        )}
+        <h2>{copy.waitingRoom.waitingRoom}</h2>
         <p className="room-code">{copy.waitingRoom.roomCodeLabel} <strong>{roomState.id}</strong></p>
 
         <div className="player-list">
-          <h3>{copy.waitingRoom.players(waitingPlayers.length)}</h3>
+          <h3>{copy.waitingRoom.players(connectedPlayers.length)}</h3>
           <ul>
-            {waitingPlayers.map((p, i) => (
+            {connectedPlayers.map((p) => (
               <li key={p.id}>
                 {p.name}
                 {p.id === roomState.hostId && <span className="host-badge">{copy.common.host}</span>}
-                {isContinueLobby && p.continueVote === true && (
-                  <span className="host-badge continue-badge">{copy.common.continue}</span>
-                )}
-                {i === 0 && p.id !== roomState.hostId && !isContinueLobby && (
-                  <span className="join-order">{copy.common.joinOrder(i + 1)}</span>
-                )}
               </li>
             ))}
           </ul>
         </div>
 
-        {!isContinueLobby && (
-          <button className="btn-secondary share-room-btn" onClick={copyShareLink}>
-            {shareCopied ? copy.waitingRoom.linkCopied : copy.waitingRoom.shareLink}
-          </button>
-        )}
+        <button className="btn-secondary share-room-btn" onClick={copyShareLink}>
+          {shareCopied ? copy.waitingRoom.linkCopied : copy.waitingRoom.shareLink}
+        </button>
 
         {roomState.isHost ? (
           <button
@@ -173,19 +208,13 @@ export default function WaitingRoom() {
           >
             {readyCount < minPlayers
               ? copy.waitingRoom.waitingForPlayers(readyCount, minPlayers)
-              : isContinueLobby ? copy.waitingRoom.startNextRound : copy.waitingRoom.startGame}
+              : copy.waitingRoom.startGame}
           </button>
         ) : (
-          <p className="waiting-hint">
-            {isContinueLobby
-              ? copy.waitingRoom.waitingHostNextRound
-              : copy.waitingRoom.waitingHostStart}
-          </p>
+          <p className="waiting-hint">{copy.waitingRoom.waitingHostStart}</p>
         )}
 
-        {!isContinueLobby && (
-          <p className="share-hint">{copy.waitingRoom.friendsJoinViaLabel} <strong>{shareLink}</strong></p>
-        )}
+        <p className="share-hint">{copy.waitingRoom.friendsJoinViaLabel} <strong>{shareLink}</strong></p>
       </div>
     </div>
   );

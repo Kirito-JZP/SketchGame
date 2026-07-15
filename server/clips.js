@@ -21,6 +21,18 @@ function isImageFile(name) {
   return /\.(jpg|jpeg|png|webp|gif)$/i.test(name);
 }
 
+function keyframeSortKey(name) {
+  const match = name.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
+}
+
+function sortKeyframesByNumber(names) {
+  return [...names].sort((a, b) => {
+    const diff = keyframeSortKey(a) - keyframeSortKey(b);
+    return diff !== 0 ? diff : a.localeCompare(b);
+  });
+}
+
 function loadBonusKeywords(clipPath, keyframeCount) {
   const keywordsPath = path.join(clipPath, 'keywords.json');
   if (!fs.existsSync(keywordsPath)) {
@@ -76,7 +88,7 @@ export function getClipsForCategory(categoryFolder) {
       const videoFile = files.find(isVideoFile);
       const keyframesPath = path.join(clipPath, 'keyframes');
       const keyframes = fs.existsSync(keyframesPath)
-        ? fs.readdirSync(keyframesPath).filter(isImageFile).sort()
+        ? sortKeyframesByNumber(fs.readdirSync(keyframesPath).filter(isImageFile))
         : [];
 
       if (!videoFile || keyframes.length === 0) return null;

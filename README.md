@@ -22,7 +22,7 @@ npm run dev
 1. **Home** — Start game or share an invite link with friends
 2. **Waiting Room** — Host starts when 2+ players join
 3. **Role Selection** — Choose Drawer or Guesser
-4. **Drawing Phase** — Drawer watches clip, picks 3 keyframes, sketches each
+4. **Drawing Phase** — Drawer watches clip, picks 4 keyframes, sketches each
 5. **Guessing Phase** — Guessers watch live sketches, rate drawings, guess the movie
 6. **Round Results** — Scores calculated, vote to continue or exit
 

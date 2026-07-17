@@ -91,7 +91,7 @@ export const copy = {
   },
 
   selectKeyframes: {
-    title: 'Step 2. Select 3 keyframes that represent the film',
+    title: 'Step 2. Select 4 keyframes that represent the film',
     keyframeLabel: (n: number) => `Keyframe #${n}`,
     keyframeAlt: (n: number) => `Keyframe ${n}`,
     finishSelecting: 'Finish selecting, next',

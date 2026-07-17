@@ -15,6 +15,17 @@ export const PHASES = {
   CONTINUE_VOTE: 'continue_vote',
 };
 
+export const SELECTED_KEYFRAME_COUNT = 4;
+
+function emptySketches() {
+  return Array.from({ length: SELECTED_KEYFRAME_COUNT }, () => ({
+    data: null,
+    labels: [],
+    ratings: [],
+    redrawCount: 0,
+  }));
+}
+
 function resetGuesserRatingSubmission(room) {
   room.players.forEach((p) => {
     if (p.role === 'guesser') p.hasRated = false;
@@ -48,11 +59,7 @@ export function createRoom(hostId, isInviteOnly = false) {
     clip: null,
     guessOptions: [],
     selectedKeyframes: [],
-    sketches: [
-      { data: null, labels: [], ratings: [], redrawCount: 0 },
-      { data: null, labels: [], ratings: [], redrawCount: 0 },
-      { data: null, labels: [], ratings: [], redrawCount: 0 },
-    ],
+    sketches: emptySketches(),
     currentSketchIndex: 0,
     drawerId: null,
     roleSelectionIndex: 0,
@@ -228,11 +235,7 @@ export function clearRoundData(room) {
   room.clip = null;
   room.guessOptions = [];
   room.selectedKeyframes = [];
-  room.sketches = [
-    { data: null, labels: [], ratings: [], redrawCount: 0 },
-    { data: null, labels: [], ratings: [], redrawCount: 0 },
-    { data: null, labels: [], ratings: [], redrawCount: 0 },
-  ];
+  room.sketches = emptySketches();
   room.currentSketchIndex = 0;
   room.drawerId = null;
   room.roleSelectionIndex = 0;
@@ -482,11 +485,7 @@ function beginRound(room) {
     room.guessOptions = [];
   }
   room.selectedKeyframes = [];
-  room.sketches = [
-    { data: null, labels: [], ratings: [], redrawCount: 0 },
-    { data: null, labels: [], ratings: [], redrawCount: 0 },
-    { data: null, labels: [], ratings: [], redrawCount: 0 },
-  ];
+  room.sketches = emptySketches();
   room.currentSketchIndex = 0;
   room.guesses = {};
   room.guessOrder = [];
@@ -505,7 +504,7 @@ function beginRound(room) {
 
 export function submitKeyframes(room, playerId, indices) {
   if (room.drawerId !== playerId || room.phase !== PHASES.SELECT_KEYFRAMES) return false;
-  if (indices.length !== 3) return false;
+  if (indices.length !== SELECTED_KEYFRAME_COUNT) return false;
   room.selectedKeyframes = indices;
   room.phase = PHASES.DRAWING;
   room.currentSketchIndex = 0;
@@ -535,7 +534,7 @@ export function submitSketch(room, playerId, sketchData, labels = []) {
     return 'guessing';
   }
 
-  if (room.currentSketchIndex < 2) {
+  if (room.currentSketchIndex < SELECTED_KEYFRAME_COUNT - 1) {
     room.currentSketchIndex++;
     return 'next_sketch';
   }

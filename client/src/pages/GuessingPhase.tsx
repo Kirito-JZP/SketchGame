@@ -42,7 +42,7 @@ export default function GuessingPhase({
   onSubmitAnswer,
   onSubmitRating,
 }: Props) {
-  const [ratings, setRatings] = useState([0, 0, 0]);
+  const [ratings, setRatings] = useState([0, 0, 0, 0]);
   const [selectedGuess, setSelectedGuess] = useState<string | null>(null);
 
   const me = state.players.find((p) => p.id === state.myId);
@@ -64,7 +64,7 @@ export default function GuessingPhase({
           return next;
         });
       } else {
-        setRatings([0, 0, 0]);
+        setRatings([0, 0, 0, 0]);
       }
     }
     prevHasRated.current = me?.hasRated ?? false;

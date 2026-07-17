@@ -955,7 +955,7 @@ body {
 
 .sketches-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-top: 16px;
 }
@@ -1144,7 +1144,7 @@ body {
 
 .ratings-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-top: 16px;
 }
@@ -1312,7 +1312,7 @@ body {
 
 .results-sketches {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 32px;
 }
@@ -1540,8 +1540,12 @@ body {
 
   .sketches-row,
   .ratings-row,
-  .guess-options,
   .results-sketches {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .guess-options {
     grid-template-columns: 1fr;
   }
 

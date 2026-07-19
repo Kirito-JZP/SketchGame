@@ -480,15 +480,13 @@ export default function DrawingCanvas({
                   {isConfirmed ? (
                     <>
                       <span className="keyword-confirmed-text">{copy.drawingCanvas.keywordPlaced}</span>
-                      {isRedrawMode && (
-                        <button
-                          type="button"
-                          className="keyword-slot-reset"
-                          onClick={() => resetKeywordSlot(slotIndex)}
-                        >
-                          {copy.drawingCanvas.removeKeyword}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="keyword-slot-reset"
+                        onClick={() => resetKeywordSlot(slotIndex)}
+                      >
+                        {copy.drawingCanvas.removeKeyword}
+                      </button>
                     </>
                   ) : (
                     <>

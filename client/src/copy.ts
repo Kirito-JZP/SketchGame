@@ -76,12 +76,9 @@ export const copy = {
 
   roleSelection: {
     rolesForRound: 'Roles for this round',
-    selectRole: 'Select your role',
-    rolesRotateHint: 'Roles rotate each round. Starting the next round shortly...',
-    waitingForPlayer: (name: string) => `Waiting for ${name} to choose...`,
-    mustBeDrawer: 'You are the last player — you must be the drawer.',
-    draw: 'Draw',
-    guess: 'Guess',
+    rolesAssignedHint: 'Roles are assigned automatically. Starting in 5 seconds...',
+    draw: 'Drawer',
+    guess: 'Guesser',
     roleStatus: (name: string, role: string) => `${name}: ${role}`,
   },
 

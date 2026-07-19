@@ -276,18 +276,18 @@ body {
   align-items: center;
   justify-content: center;
   gap: 16px;
-  cursor: pointer;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  cursor: default;
+  transition: box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
 }
 
-.role-card:hover:not(.disabled) {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+.role-card-assigned {
   border-color: #111;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  opacity: 1;
 }
 
 .role-card.disabled {
   opacity: 0.4;
-  cursor: not-allowed;
 }
 
 .role-emoji {

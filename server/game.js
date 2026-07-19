@@ -405,25 +405,10 @@ function getAverageRating(ratings) {
   return ratings.reduce((sum, r) => sum + r, 0) / ratings.length;
 }
 
-export function startGame(room) {
-  room.phase = PHASES.ROLE_SELECTION;
-  room.roleSelectionIndex = 0;
-  room.drawerChosen = false;
-  room.rolesLocked = false;
-  room.players.forEach((p) => {
-    p.role = null;
-    p.hasGuessed = false;
-    p.hasRated = false;
-  });
-}
-
-function assignRotatedRoles(room) {
+function assignRolesByJoinOrder(room, drawerJoinOrder) {
   const sorted = [...room.players].sort((a, b) => a.joinOrder - b.joinOrder);
-  const prevDrawer = room.players.find((p) => p.id === room.drawerId);
-  const nextJoinOrder = prevDrawer
-    ? (prevDrawer.joinOrder + 1) % room.players.length
-    : 0;
-  const newDrawer = sorted.find((p) => p.joinOrder === nextJoinOrder) || sorted[0];
+  const newDrawer =
+    sorted.find((p) => p.joinOrder === drawerJoinOrder) || sorted[0];
 
   room.players.forEach((p) => {
     p.role = p.id === newDrawer.id ? 'drawer' : 'guesser';
@@ -431,6 +416,25 @@ function assignRotatedRoles(room) {
   room.drawerId = newDrawer.id;
   room.drawerChosen = true;
   room.roleSelectionIndex = room.players.length;
+  room.rolesLocked = true;
+}
+
+export function startGame(room) {
+  room.phase = PHASES.ROLE_SELECTION;
+  room.players.forEach((p) => {
+    p.hasGuessed = false;
+    p.hasRated = false;
+  });
+  // First player to join the room becomes drawer; later players are guessers.
+  assignRolesByJoinOrder(room, 0);
+}
+
+function assignRotatedRoles(room) {
+  const prevDrawer = room.players.find((p) => p.id === room.drawerId);
+  const nextJoinOrder = prevDrawer
+    ? (prevDrawer.joinOrder + 1) % room.players.length
+    : 0;
+  assignRolesByJoinOrder(room, nextJoinOrder);
 }
 
 export function selectRole(room, playerId, role) {
@@ -783,20 +787,8 @@ export function startNextRound(room) {
   });
 
   room.phase = PHASES.ROLE_SELECTION;
-
-  if (room.round >= 1) {
-    assignRotatedRoles(room);
-    room.rolesLocked = true;
-    return 'locked';
-  }
-
-  room.roleSelectionIndex = 0;
-  room.drawerChosen = false;
-  room.rolesLocked = false;
-  room.players.forEach((p) => {
-    p.role = null;
-  });
-  return 'manual';
+  assignRotatedRoles(room);
+  return 'locked';
 }
 
 export function proceedFromLockedRoleSelection(room) {

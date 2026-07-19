@@ -335,6 +335,13 @@ io.on('connection', (socket) => {
     }
     startGame(room);
     broadcastRoom(currentRoomId);
+    setTimeout(() => {
+      const r = rooms.get(currentRoomId);
+      if (!r) return;
+      if (proceedFromLockedRoleSelection(r)) {
+        broadcastRoom(currentRoomId);
+      }
+    }, ROOM_TIMINGS.ROLE_REVEAL_MS);
     cb?.({ success: true });
   });
 
@@ -416,7 +423,7 @@ io.on('connection', (socket) => {
           if (proceedFromLockedRoleSelection(r)) {
             broadcastRoom(currentRoomId);
           }
-        }, 3000);
+        }, ROOM_TIMINGS.ROLE_REVEAL_MS);
       }
       cb?.({ success: true, action: outcome.action });
       return;

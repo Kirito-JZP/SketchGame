@@ -3,65 +3,48 @@ import type { RoomState } from '../types';
 
 interface Props {
   state: RoomState;
-  onSelect: (role: 'drawer' | 'guesser') => void;
 }
 
-export default function RoleSelection({ state, onSelect }: Props) {
-  const rolesLocked = state.rolesLocked;
-  const drawerTaken = state.drawerChosen;
-  const isMyTurn = state.canSelectRole;
-  const mustBeDrawer = state.mustBeDrawer;
+export default function RoleSelection({ state }: Props) {
+  const isDrawer = state.myRole === 'drawer';
+  const isGuesser = state.myRole === 'guesser';
 
   return (
     <div className="role-selection-page">
-      <h2>{rolesLocked ? copy.roleSelection.rolesForRound : copy.roleSelection.selectRole}</h2>
-      {rolesLocked && (
-        <p className="wait-turn">{copy.roleSelection.rolesRotateHint}</p>
-      )}
-      {!rolesLocked && !isMyTurn && (
-        <p className="wait-turn">
-          {copy.roleSelection.waitingForPlayer(
-            state.players.find((p) => p.joinOrder === state.roleSelectionIndex)?.name ?? ''
-          )}
-        </p>
-      )}
-      {!rolesLocked && mustBeDrawer && isMyTurn && (
-        <p className="wait-turn">{copy.roleSelection.mustBeDrawer}</p>
-      )}
+      <h2>{copy.roleSelection.rolesForRound}</h2>
+      <p className="wait-turn">{copy.roleSelection.rolesAssignedHint}</p>
       <div className="role-cards">
-        <button
-          className={`role-card ${rolesLocked || !isMyTurn || (drawerTaken && !mustBeDrawer) ? 'disabled' : ''}`}
-          disabled={rolesLocked || !isMyTurn || (drawerTaken && !mustBeDrawer)}
-          onClick={() => onSelect('drawer')}
+        <div
+          className={`role-card ${isDrawer ? 'role-card-assigned' : 'disabled'}`}
+          aria-current={isDrawer ? 'true' : undefined}
         >
           <span className="role-emoji">🎨</span>
           <span className="role-name">{copy.roleSelection.draw}</span>
-        </button>
-        <button
-          className={`role-card ${rolesLocked || !isMyTurn || mustBeDrawer ? 'disabled' : ''}`}
-          disabled={rolesLocked || !isMyTurn || mustBeDrawer}
-          onClick={() => onSelect('guesser')}
+        </div>
+        <div
+          className={`role-card ${isGuesser ? 'role-card-assigned' : 'disabled'}`}
+          aria-current={isGuesser ? 'true' : undefined}
         >
           <span className="role-emoji">💡</span>
           <span className="role-name">{copy.roleSelection.guess}</span>
-        </button>
+        </div>
       </div>
       <div className="role-status">
-        {rolesLocked
-          ? [...state.players]
-              .sort((a, b) => a.joinOrder - b.joinOrder)
-              .map((p) => (
-                <span key={p.id} className="role-status-item">
-                  {copy.roleSelection.roleStatus(p.name, p.role ?? '')}
-                </span>
-              ))
-          : state.players
-              .filter((p) => p.role)
-              .map((p) => (
-                <span key={p.id} className="role-status-item">
-                  {copy.roleSelection.roleStatus(p.name, p.role ?? '')}
-                </span>
-              ))}
+        {[...state.players]
+          .sort((a, b) => a.joinOrder - b.joinOrder)
+          .map((p) => {
+            const roleLabel =
+              p.role === 'drawer'
+                ? copy.roleSelection.draw
+                : p.role === 'guesser'
+                  ? copy.roleSelection.guess
+                  : p.role ?? '';
+            return (
+              <span key={p.id} className="role-status-item">
+                {copy.roleSelection.roleStatus(p.name, roleLabel)}
+              </span>
+            );
+          })}
       </div>
     </div>
   );

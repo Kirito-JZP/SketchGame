@@ -84,10 +84,7 @@ export default function Game() {
   if (phase === 'role_selection') {
     return withLeaveBanner(
       roomState,
-      <RoleSelection
-        state={roomState}
-        onSelect={(role) => emit('role:select', { role })}
-      />
+      <RoleSelection state={roomState} />
     );
   }
 

@@ -197,7 +197,6 @@ export default function GuessingPhase({
                   preload="metadata"
                 />
               )}
-              <span className="guess-title">{opt.title}</span>
             </button>
           ))}
         </div>

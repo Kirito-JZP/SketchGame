@@ -72,6 +72,8 @@ export const copy = {
     guesser: 'Guesser',
     worldRank: (rank: number, total: number) => `Current World Rank: ${rank}/${total}`,
     currentScore: (score: number) => `Current Score: ${score}`,
+    sessionTimeLeft: (time: string) => `Current session time left ${time}`,
+    sketchTimeLeft: (time: string) => `Current Sketch Time Left ${time}`,
   },
 
   roleSelection: {
@@ -88,7 +90,7 @@ export const copy = {
   },
 
   selectKeyframes: {
-    title: 'Step 2. Select 4 keyframes that represent the film',
+    title: 'Step 2. Select 3 keyframes that represent the film',
     keyframeLabel: (n: number) => `Keyframe #${n}`,
     keyframeAlt: (n: number) => `Keyframe ${n}`,
     finishSelecting: 'Finish selecting, next',
@@ -97,6 +99,10 @@ export const copy = {
   drawingPhase: {
     redrawTitle: 'Redraw low-rated sketches — continue from your previous drawing',
     drawTitle: 'Step 3. Draw a picture based on selected keyframe, so that someone who has not watched this clip could understand what happens in it. You may draw anything and write text anywhere or in the input box and drag them on the canvas.',
+    timeUp: 'Time’s up!',
+    extendTimePrompt: 'Extend time? (+10s, -1 point)',
+    autoSubmitIn: (seconds: number) => `Auto-submit in ${seconds}s`,
+    extendTime: 'Extend (+10s, -1 pt)',
   },
 
   drawingCanvas: {
@@ -138,6 +144,12 @@ export const copy = {
     waitingOthers: 'Waiting for other players...',
     pleaseRerate: 'Please re-rate the updated sketches only.',
     pleaseSubmitRatings: 'Please submit your updated sketch ratings.',
+    keywordUpdated: 'Updated sketch with bonus keyword',
+    keywordPending: 'Waiting for drawer to add keyword...',
+    keywordClaimed: 'Bonus keyword already claimed',
+    keywordInsufficient: (cost: number, available: number) =>
+      `Need ${cost} power-up points (you have ${available})`,
+    requestKeyword: (cost: number) => `Request Additional Keyword (−${cost} pts)`,
   },
 
   drawerGuessing: {
@@ -145,6 +157,12 @@ export const copy = {
     progress: (answersDone: number, answersTotal: number, ratedDone: number, ratedTotal: number) =>
       `${answersDone}/${answersTotal} guesser(s) submitted answers, ${ratedDone}/${ratedTotal} rated`,
     waiting: 'Waiting for guessers to submit answers and ratings...',
+    sessionTimeLeft: (time: string) => `${time} left`,
+    keywordRequests: 'Keyword requests',
+    keywordRequestHint: 'A guesser spent points to request an extra keyword. Edit the sketch and add the keyword.',
+    requestedKeyword: (name: string, index: number) => `${name} requested a keyword for sketch #${index}`,
+    suggestedKeyword: (keyword: string) => `Suggested keyword: ${keyword}`,
+    editSketchKeyword: 'Edit sketch & add keyword',
   },
 
   drawerWaiting: {

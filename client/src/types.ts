@@ -69,6 +69,13 @@ export interface RoundScore {
   breakdown: RoundScoreBreakdown;
 }
 
+export interface KeywordRequestInfo {
+  sketchIndex: number;
+  requesterName: string;
+  presetKeyword: string;
+  status: 'pending' | 'fulfilled';
+}
+
 export interface RoomState {
   id: string;
   categoryId: string | null;
@@ -93,6 +100,11 @@ export interface RoomState {
   guesses: Record<string, { correct: boolean; guessId: string }>;
   guessProgress: { completed: number; total: number };
   ratingProgress: { completed: number; total: number };
+  sessionTimeLeft: number;
+  sketchTimeLeft: number;
+  extendPromptActive: boolean;
+  extendPromptTimeLeft: number;
+  sketchAutoSubmitRequired: boolean;
   liveDrawing: LiveDrawing | null;
   roundScores: RoundScore[] | null;
   redrawKeyframes: number[];
@@ -106,6 +118,10 @@ export interface RoomState {
   canSelectRole: boolean;
   mustBeDrawer: boolean;
   continueVotes: { continue: number; exit: number; total: number } | null;
+  myPowerUpPoints: number;
+  myKeywordRequestStatus: ('none' | 'pending' | 'fulfilled')[];
+  bonusKeywordClaimed: boolean[];
+  keywordRequests: (KeywordRequestInfo | null)[];
   playerLeave: {
     playerId: string;
     playerName: string;

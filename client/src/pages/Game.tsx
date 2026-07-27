@@ -112,12 +112,21 @@ export default function Game() {
         state={roomState}
         onLiveUpdate={(data, labels) => emit('drawing:live', { data, labels })}
         onSubmit={(data, labels) => emit('sketch:submit', { data, labels })}
+        onExtendTime={() => emit('sketch:extend-time')}
       />
     );
   }
 
   if (phase === 'guessing' && isDrawer) {
-    return withLeaveBanner(roomState, <DrawerGuessingPanel state={roomState} />);
+    return withLeaveBanner(
+      roomState,
+      <DrawerGuessingPanel
+        state={roomState}
+        onFulfillKeyword={(sketchIndex, data, labels) =>
+          emit('keyword:fulfill', { sketchIndex, data, labels })
+        }
+      />
+    );
   }
 
   if ((phase === 'drawing' || phase === 'redraw' || phase === 'guessing') && isGuesser) {
@@ -128,6 +137,7 @@ export default function Game() {
         liveDrawing={liveDrawing}
         onSubmitAnswer={(guessId) => emit('guess:submit', { guessId })}
         onSubmitRating={(ratings, comment) => emit('rating:submit', { ratings, comment })}
+        onRequestKeyword={(sketchIndex) => emit('keyword:request', { sketchIndex })}
       />
     );
   }

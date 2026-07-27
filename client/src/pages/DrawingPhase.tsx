@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import GameHeader from '../components/GameHeader';
 import DrawingCanvas from '../components/DrawingCanvas';
 import { copy } from '../copy';
@@ -8,9 +8,10 @@ interface Props {
   state: RoomState;
   onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
   onSubmit: (data: string, labels: SketchLabel[]) => void;
+  onExtendTime: () => void;
 }
 
-export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
+export default function DrawingPhase({ state, onLiveUpdate, onSubmit, onExtendTime }: Props) {
   const keyframes = state.clip?.keyframes || [];
   const selected = state.selectedKeyframes;
   const currentKf = selected[state.currentSketchIndex];
@@ -32,14 +33,25 @@ export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
   }
   const initialSketchData = isRedraw ? frozenRedrawRef.current.data : null;
   const initialSketchLabels = isRedraw ? frozenRedrawRef.current.labels : [];
+  const [autoSubmitSignal, setAutoSubmitSignal] = useState(0);
+  const prevAutoSubmit = useRef(false);
+
+  useEffect(() => {
+    if (state.sketchAutoSubmitRequired && !prevAutoSubmit.current) {
+      setAutoSubmitSignal((n) => n + 1);
+    }
+    prevAutoSubmit.current = state.sketchAutoSubmitRequired;
+  }, [state.sketchAutoSubmitRequired]);
 
   return (
     <div className="game-page">
-      <GameHeader state={state} />
+      <GameHeader state={state} showSketchTimer />
       <div className="step-header">
         <span className="step-icon">{isRedraw ? '🔄' : '✏️'}</span>
         <h2>
-          {isRedraw ? copy.drawingPhase.redrawTitle : copy.drawingPhase.drawTitle}
+          {isRedraw
+            ? copy.drawingPhase.redrawTitle
+            : copy.drawingPhase.drawTitle}
         </h2>
       </div>
       <DrawingCanvas
@@ -53,9 +65,24 @@ export default function DrawingPhase({ state, onLiveUpdate, onSubmit }: Props) {
         initialLabels={initialSketchLabels}
         isRedrawMode={isRedraw}
         redrawSketchIndices={isRedraw ? state.redrawSketchIndices : undefined}
+        autoSubmitSignal={autoSubmitSignal}
         onSubmit={onSubmit}
         onLiveUpdate={onLiveUpdate}
       />
+      {state.extendPromptActive && (
+        <div className="extend-time-overlay">
+          <div className="extend-time-dialog">
+            <h3>{copy.drawingPhase.timeUp}</h3>
+            <p>{copy.drawingPhase.extendTimePrompt}</p>
+            <p className="extend-time-countdown">
+              {copy.drawingPhase.autoSubmitIn(state.extendPromptTimeLeft)}
+            </p>
+            <button type="button" className="btn-primary" onClick={onExtendTime}>
+              {copy.drawingPhase.extendTime}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@ interface Props {
   initialLabels?: SketchLabel[];
   isRedrawMode?: boolean;
   redrawSketchIndices?: number[];
+  autoSubmitSignal?: number;
   onSubmit: (data: string, labels: SketchLabel[]) => void;
   onLiveUpdate: (data: string, labels: SketchLabel[]) => void;
 }
@@ -31,6 +32,7 @@ export default function DrawingCanvas({
   initialLabels = [],
   isRedrawMode = false,
   redrawSketchIndices,
+  autoSubmitSignal = 0,
   onSubmit,
   onLiveUpdate,
 }: Props) {
@@ -354,6 +356,12 @@ export default function DrawingCanvas({
     const data = exportCanvasWithLabels(canvas, labels);
     onSubmit(data, labels);
   };
+
+  useEffect(() => {
+    if (autoSubmitSignal > 0) {
+      submitSketch();
+    }
+  }, [autoSubmitSignal]);
 
   return (
     <div className="drawing-layout">

@@ -276,18 +276,18 @@ body {
   align-items: center;
   justify-content: center;
   gap: 16px;
-  cursor: default;
-  transition: box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s;
 }
 
-.role-card-assigned {
+.role-card:hover:not(.disabled) {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   border-color: #111;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  opacity: 1;
 }
 
 .role-card.disabled {
   opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .role-emoji {
@@ -360,22 +360,6 @@ body {
 
 .stat {
   color: #333;
-}
-
-.player-leave-banner {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  background: #3d2914;
-  color: #fff8e7;
-  text-align: center;
-  padding: 12px 16px;
-  font-size: 0.95rem;
-  border-bottom: 1px solid #5c4020;
-}
-
-.player-leave-banner p {
-  margin: 0;
 }
 
 .timer-pill {
@@ -955,7 +939,7 @@ body {
 
 .sketches-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-top: 16px;
 }
@@ -1144,7 +1128,7 @@ body {
 
 .ratings-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-top: 16px;
 }
@@ -1312,7 +1296,7 @@ body {
 
 .results-sketches {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 32px;
 }
@@ -1540,12 +1524,8 @@ body {
 
   .sketches-row,
   .ratings-row,
+  .guess-options,
   .results-sketches {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .guess-options {
     grid-template-columns: 1fr;
   }
 

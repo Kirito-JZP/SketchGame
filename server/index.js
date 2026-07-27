@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { CLIPS_DIR, hasAnyClips } from './clips.js';
 import { copy, ROOM_TIMINGS, GLOBAL_ROOM_ID } from './copy.js';
 import {
+  PHASES,
   joinPlayer,
   createRoom,
   getPublicRoomState,
@@ -29,6 +30,10 @@ import {
   updateLiveDrawing,
   advanceFromWatch,
   normalizePlayerName,
+  tickSketchTimer,
+  extendSketchTime,
+  requestAdditionalKeyword,
+  fulfillKeywordRequest,
 } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -179,6 +184,7 @@ function getOrCreateGlobalRoom() {
     room = createRoom(null, false);
     room.id = GLOBAL_ROOM_ID;
     rooms.set(GLOBAL_ROOM_ID, room);
+    startRoomTimer(GLOBAL_ROOM_ID);
   }
   return room;
 }
@@ -187,6 +193,7 @@ function destroyRoomIfEmpty(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
   if (room.players.length > 0) return;
+  stopRoomTimer(roomId);
 
   for (const key of [...playerTimers.keys()]) {
     if (key.startsWith(`${roomId}:`)) {
@@ -209,6 +216,39 @@ async function broadcastRoom(roomId) {
   sockets.forEach((socket) => {
     socket.emit('room:update', getPublicRoomState(room, socket.id));
   });
+}
+
+function startRoomTimer(roomId) {
+  const room = rooms.get(roomId);
+  if (!room || room.timerInterval) return;
+
+  room.timerInterval = setInterval(() => {
+    const r = rooms.get(roomId);
+    if (!r) return;
+
+    if (
+      r.phase !== PHASES.WAITING &&
+      r.phase !== PHASES.ROLE_SELECTION &&
+      r.phase !== PHASES.ROUND_RESULTS &&
+      r.phase !== PHASES.CONTINUE_VOTE
+    ) {
+      r.sessionTimeLeft = Math.max(0, r.sessionTimeLeft - 1);
+    }
+
+    if (r.phase === PHASES.DRAWING || r.phase === PHASES.REDRAW) {
+      tickSketchTimer(r);
+    }
+
+    broadcastRoom(roomId);
+  }, 1000);
+}
+
+function stopRoomTimer(roomId) {
+  const room = rooms.get(roomId);
+  if (room?.timerInterval) {
+    clearInterval(room.timerInterval);
+    room.timerInterval = null;
+  }
 }
 
 function handleConfirmedDisconnect(roomId, playerId) {
@@ -334,6 +374,7 @@ io.on('connection', (socket) => {
       return;
     }
     startGame(room);
+    startRoomTimer(currentRoomId);
     broadcastRoom(currentRoomId);
     setTimeout(() => {
       const r = rooms.get(currentRoomId);
@@ -390,6 +431,14 @@ io.on('connection', (socket) => {
     cb?.({ success: !!result, result });
   });
 
+  socket.on('sketch:extend-time', (_data, cb) => {
+    const room = rooms.get(currentRoomId);
+    if (!room) return;
+    const ok = extendSketchTime(room, playerId);
+    if (ok) broadcastRoom(currentRoomId);
+    cb?.({ success: ok });
+  });
+
   socket.on('guess:submit', ({ guessId }, cb) => {
     const room = rooms.get(currentRoomId);
     if (!room) return;
@@ -406,6 +455,24 @@ io.on('connection', (socket) => {
     submitRatings(room, playerId, ratings, comment);
     broadcastRoom(currentRoomId);
     cb?.({ success: true });
+  });
+
+  socket.on('keyword:request', ({ sketchIndex }, cb) => {
+    const room = rooms.get(currentRoomId);
+    if (!room) return;
+
+    const ok = requestAdditionalKeyword(room, playerId, sketchIndex);
+    if (ok) broadcastRoom(currentRoomId);
+    cb?.({ success: ok });
+  });
+
+  socket.on('keyword:fulfill', ({ sketchIndex, data, labels }, cb) => {
+    const room = rooms.get(currentRoomId);
+    if (!room) return;
+
+    const ok = fulfillKeywordRequest(room, playerId, sketchIndex, data, labels || []);
+    if (ok) broadcastRoom(currentRoomId);
+    cb?.({ success: ok });
   });
 
   socket.on('round:continue-vote', ({ vote }, cb) => {

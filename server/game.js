@@ -15,7 +15,15 @@ export const PHASES = {
   CONTINUE_VOTE: 'continue_vote',
 };
 
-export const SELECTED_KEYFRAME_COUNT = 4;
+const SESSION_TIME = 180;
+export const SKETCH_TIME = 30;
+export const SKETCH_EXTEND_SECONDS = 10;
+export const SKETCH_EXTEND_PENALTY = 1;
+export const SKETCH_EXTEND_PROMPT_SECONDS = 3;
+export const SKETCH_TIMER_WARNING_SECONDS = 3;
+export const POWER_UP_STARTING_POINTS = 50;
+export const KEYWORD_REQUEST_COST = 5;
+export const SELECTED_KEYFRAME_COUNT = 3;
 
 function emptySketches() {
   return Array.from({ length: SELECTED_KEYFRAME_COUNT }, () => ({
@@ -36,6 +44,17 @@ function clearSketchRatings(room, indices) {
   indices.forEach((i) => {
     if (room.sketches[i]) room.sketches[i].ratings = [];
   });
+}
+
+function resetKeywordRequestState(room) {
+  room.keywordRequests = Array(SELECTED_KEYFRAME_COUNT).fill(null);
+  room.privateSketchUpdates = {};
+}
+
+function resetSketchTimerState(room) {
+  room.extendPromptActive = false;
+  room.extendPromptTimeLeft = 0;
+  room.sketchAutoSubmitRequired = false;
 }
 
 function resetRoundAdjustments(room) {
@@ -66,6 +85,9 @@ export function createRoom(hostId, isInviteOnly = false) {
     drawerChosen: false,
     guesses: {},
     guessOrder: [],
+    sessionTimeLeft: SESSION_TIME,
+    sketchTimeLeft: SKETCH_TIME,
+    timerInterval: null,
     continueVotes: {},
     roundScores: null,
     redrawKeyframes: [],
@@ -73,6 +95,11 @@ export function createRoom(hostId, isInviteOnly = false) {
     rerateSketchIndices: [],
     liveDrawing: null,
     rolesLocked: false,
+    keywordRequests: Array(SELECTED_KEYFRAME_COUNT).fill(null),
+    privateSketchUpdates: {},
+    extendPromptActive: false,
+    extendPromptTimeLeft: 0,
+    sketchAutoSubmitRequired: false,
     roundAdjustments: [],
     playerLeave: null,
   };
@@ -117,6 +144,7 @@ function reclaimPlayerSeat(room, player, newSocketId) {
 
   remapPlayerId(room.guesses, oldId, newSocketId);
   remapPlayerId(room.continueVotes, oldId, newSocketId);
+  remapPlayerId(room.privateSketchUpdates, oldId, newSocketId);
 
   room.guessOrder = room.guessOrder.map((id) => (id === oldId ? newSocketId : id));
   room.roundAdjustments = (room.roundAdjustments || []).map((a) =>
@@ -147,6 +175,7 @@ export function joinPlayer(room, socketId, playerName) {
   const bySocket = room.players.find((p) => p.id === socketId);
   if (bySocket) {
     if (playerName) bySocket.name = playerName.trim() || bySocket.name;
+    if (bySocket.powerUpPoints == null) bySocket.powerUpPoints = POWER_UP_STARTING_POINTS;
     bySocket.connected = true;
     bySocket.disconnectedAt = null;
     return { ok: true, player: bySocket, reconnected: true };
@@ -170,6 +199,7 @@ export function joinPlayer(room, socketId, playerName) {
     }
     reclaimPlayerSeat(room, byName, socketId);
     byName.name = trimmed;
+    if (byName.powerUpPoints == null) byName.powerUpPoints = POWER_UP_STARTING_POINTS;
     return { ok: true, player: byName, reconnected: true };
   }
 
@@ -186,6 +216,7 @@ export function joinPlayer(room, socketId, playerName) {
     hasGuessed: false,
     hasRated: false,
     continueVote: null,
+    powerUpPoints: POWER_UP_STARTING_POINTS,
     connected: true,
     disconnectedAt: null,
   };
@@ -249,6 +280,10 @@ export function clearRoundData(room) {
   room.rerateSketchIndices = [];
   room.liveDrawing = null;
   room.rolesLocked = false;
+  room.sessionTimeLeft = SESSION_TIME;
+  room.sketchTimeLeft = SKETCH_TIME;
+  resetSketchTimerState(room);
+  resetKeywordRequestState(room);
   room.roundAdjustments = [];
   room.playerLeave = null;
   room.players.forEach((p) => {
@@ -331,14 +366,15 @@ export function getPublicRoomState(room, playerId) {
         : [],
     selectedKeyframes: isDrawer ? room.selectedKeyframes : room.selectedKeyframes.map((_, i) => i),
     sketches: room.sketches.map((s, i) => {
+      const privateUpdate = me?.role === 'guesser' ? room.privateSketchUpdates?.[playerId]?.[i] : null;
       const showStoredLabels =
         isDrawer && room.phase === PHASES.REDRAW
           ? (s.labels ?? [])
-          : s.data
+          : privateUpdate || s.data
             ? []
             : (s.labels ?? []);
       return {
-        data: s.data,
+        data: privateUpdate?.data ?? s.data,
         labels: showStoredLabels,
         lockedRating:
           me?.role === 'guesser' &&
@@ -370,6 +406,11 @@ export function getPublicRoomState(room, playerId) {
       completed: room.players.filter((p) => p.role === 'guesser' && p.hasRated).length,
       total: room.players.filter((p) => p.role === 'guesser').length,
     },
+    sessionTimeLeft: room.sessionTimeLeft,
+    sketchTimeLeft: room.sketchTimeLeft,
+    extendPromptActive: isDrawer ? room.extendPromptActive : false,
+    extendPromptTimeLeft: isDrawer ? room.extendPromptTimeLeft : 0,
+    sketchAutoSubmitRequired: isDrawer ? room.sketchAutoSubmitRequired : false,
     liveDrawing: room.liveDrawing,
     roundScores: room.roundScores,
     redrawKeyframes: isDrawer ? room.redrawKeyframes : [],
@@ -397,6 +438,28 @@ export function getPublicRoomState(room, playerId) {
           total: room.players.length,
         }
       : null,
+    myPowerUpPoints: me?.powerUpPoints ?? POWER_UP_STARTING_POINTS,
+    myKeywordRequestStatus:
+      me?.role === 'guesser'
+        ? Array.from({ length: SELECTED_KEYFRAME_COUNT }, (_, i) => {
+            const req = room.keywordRequests?.[i];
+            if (!req || req.requestedBy !== playerId) return 'none';
+            return req.status;
+          })
+        : Array(SELECTED_KEYFRAME_COUNT).fill('none'),
+    bonusKeywordClaimed: (room.keywordRequests || []).map((req) => req !== null),
+    keywordRequests: isDrawer
+      ? (room.keywordRequests || []).map((req, i) =>
+          req
+            ? {
+                sketchIndex: i,
+                requesterName: req.requesterName,
+                presetKeyword: req.presetKeyword,
+                status: req.status,
+              }
+            : null
+        )
+      : Array(SELECTED_KEYFRAME_COUNT).fill(null),
   };
 }
 
@@ -498,7 +561,11 @@ function beginRound(room) {
   room.rerateSketchIndices = [];
   room.liveDrawing = null;
   room.roundScores = null;
+  resetKeywordRequestState(room);
   resetRoundAdjustments(room);
+  room.sessionTimeLeft = SESSION_TIME;
+  room.sketchTimeLeft = SKETCH_TIME;
+  resetSketchTimerState(room);
   room.phase = PHASES.WATCH_CLIP;
   room.players.forEach((p) => {
     p.hasGuessed = false;
@@ -512,6 +579,45 @@ export function submitKeyframes(room, playerId, indices) {
   room.selectedKeyframes = indices;
   room.phase = PHASES.DRAWING;
   room.currentSketchIndex = 0;
+  room.sketchTimeLeft = SKETCH_TIME;
+  resetSketchTimerState(room);
+  return true;
+}
+
+export function tickSketchTimer(room) {
+  if (room.phase !== PHASES.DRAWING && room.phase !== PHASES.REDRAW) return;
+
+  if (room.extendPromptActive) {
+    room.extendPromptTimeLeft = Math.max(0, room.extendPromptTimeLeft - 1);
+    if (room.extendPromptTimeLeft === 0) {
+      room.extendPromptActive = false;
+      room.sketchAutoSubmitRequired = true;
+    }
+    return;
+  }
+
+  if (room.sketchTimeLeft > 0) {
+    room.sketchTimeLeft -= 1;
+    if (room.sketchTimeLeft === 0) {
+      room.extendPromptActive = true;
+      room.extendPromptTimeLeft = SKETCH_EXTEND_PROMPT_SECONDS;
+    }
+  }
+}
+
+export function extendSketchTime(room, playerId) {
+  if (room.drawerId !== playerId) return false;
+  if (!room.extendPromptActive) return false;
+  if (room.phase !== PHASES.DRAWING && room.phase !== PHASES.REDRAW) return false;
+
+  const drawer = room.players.find((p) => p.id === playerId);
+  if (drawer) {
+    drawer.score -= SKETCH_EXTEND_PENALTY;
+    logRoundAdjustment(room, playerId, 'Time extension (+10s)', -SKETCH_EXTEND_PENALTY, 'score');
+  }
+
+  room.sketchTimeLeft += SKETCH_EXTEND_SECONDS;
+  resetSketchTimerState(room);
   return true;
 }
 
@@ -521,12 +627,14 @@ export function submitSketch(room, playerId, sketchData, labels = []) {
   room.sketches[room.currentSketchIndex].data = sketchData;
   room.sketches[room.currentSketchIndex].labels = labels;
   room.liveDrawing = null;
+  resetSketchTimerState(room);
 
   if (room.phase === PHASES.REDRAW) {
     const queue = room.redrawSketchIndices;
     const pos = queue.indexOf(room.currentSketchIndex);
     if (pos >= 0 && pos < queue.length - 1) {
       room.currentSketchIndex = queue[pos + 1];
+      room.sketchTimeLeft = SKETCH_TIME;
       return 'next_sketch';
     }
     room.phase = PHASES.GUESSING;
@@ -535,11 +643,13 @@ export function submitSketch(room, playerId, sketchData, labels = []) {
     room.redrawSketchIndices = [];
     room.redrawKeyframes = [];
     resetGuesserRatingSubmission(room);
+    resetKeywordRequestState(room);
     return 'guessing';
   }
 
   if (room.currentSketchIndex < SELECTED_KEYFRAME_COUNT - 1) {
     room.currentSketchIndex++;
+    room.sketchTimeLeft = SKETCH_TIME;
     return 'next_sketch';
   }
 
@@ -591,6 +701,55 @@ export function submitRatings(room, playerId, ratings, comment) {
   return true;
 }
 
+export function requestAdditionalKeyword(room, playerId, sketchIndex) {
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || player.role !== 'guesser') return false;
+  if (room.phase !== PHASES.GUESSING || player.hasRated) return false;
+  if (sketchIndex < 0 || sketchIndex >= SELECTED_KEYFRAME_COUNT) return false;
+  if (!room.sketches[sketchIndex]?.data) return false;
+  if (room.keywordRequests[sketchIndex] !== null) return false;
+  if ((player.powerUpPoints ?? 0) < KEYWORD_REQUEST_COST) return false;
+
+  const keyframeIndex = room.selectedKeyframes[sketchIndex];
+  const presetKeyword =
+    room.clip?.bonusKeywords?.[keyframeIndex] ?? `hint-${sketchIndex + 1}`;
+
+  player.powerUpPoints -= KEYWORD_REQUEST_COST;
+  logRoundAdjustment(
+    room,
+    playerId,
+    `Keyword request (sketch ${sketchIndex + 1})`,
+    -KEYWORD_REQUEST_COST,
+    'power_up'
+  );
+  room.keywordRequests[sketchIndex] = {
+    requestedBy: playerId,
+    requesterName: player.name,
+    presetKeyword,
+    status: 'pending',
+  };
+  return true;
+}
+
+export function fulfillKeywordRequest(room, playerId, sketchIndex, sketchData, labels = []) {
+  if (room.drawerId !== playerId || room.phase !== PHASES.GUESSING) return false;
+  if (sketchIndex < 0 || sketchIndex >= SELECTED_KEYFRAME_COUNT) return false;
+
+  const request = room.keywordRequests[sketchIndex];
+  if (!request || request.status !== 'pending') return false;
+
+  const requesterId = request.requestedBy;
+  if (!room.privateSketchUpdates[requesterId]) {
+    room.privateSketchUpdates[requesterId] = {};
+  }
+  room.privateSketchUpdates[requesterId][sketchIndex] = {
+    data: sketchData,
+    labels,
+  };
+  request.status = 'fulfilled';
+  return true;
+}
+
 export function checkGuessingComplete(room) {
   const guessers = room.players.filter((p) => p.role === 'guesser');
   if (guessers.every((p) => p.hasGuessed && p.hasRated)) {
@@ -616,6 +775,8 @@ function evaluateRound(room) {
     room.phase = PHASES.SELECT_KEYFRAMES;
     room.selectedKeyframes = [];
     room.currentSketchIndex = 0;
+    room.sketchTimeLeft = SKETCH_TIME;
+    resetSketchTimerState(room);
     room.sketches.forEach((s) => {
       s.data = null;
       s.labels = [];
@@ -629,6 +790,7 @@ function evaluateRound(room) {
     room.guesses = {};
     room.guessOrder = [];
     room.rerateSketchIndices = [];
+    resetKeywordRequestState(room);
     return;
   }
 
@@ -639,11 +801,14 @@ function evaluateRound(room) {
       room.redrawSketchIndices = needsRedraw.map((f) => f.index);
       room.redrawKeyframes = needsRedraw.map((f) => room.selectedKeyframes[f.index]);
       room.currentSketchIndex = needsRedraw[0].index;
+      room.sketchTimeLeft = SKETCH_TIME;
+      resetSketchTimerState(room);
       clearSketchRatings(room, needsRedraw.map((f) => f.index));
       resetGuesserRatingSubmission(room);
       needsRedraw.forEach((f) => {
         room.sketches[f.index].redrawCount++;
       });
+      resetKeywordRequestState(room);
       return;
     }
   }

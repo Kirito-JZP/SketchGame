@@ -4,11 +4,14 @@ import SketchViewer from '../components/SketchViewer';
 import { copy } from '../copy';
 import type { RoomState } from '../types';
 
+const KEYWORD_REQUEST_COST = 5;
+
 interface Props {
   state: RoomState;
   liveDrawing: { data: string; labels: import('../types').SketchLabel[]; sketchIndex: number } | null;
   onSubmitAnswer: (guessId: string) => void;
   onSubmitRating: (ratings: number[], comment: string) => void;
+  onRequestKeyword: (sketchIndex: number) => void;
 }
 
 function StarRating({
@@ -41,13 +44,17 @@ export default function GuessingPhase({
   liveDrawing,
   onSubmitAnswer,
   onSubmitRating,
+  onRequestKeyword,
 }: Props) {
-  const [ratings, setRatings] = useState([0, 0, 0, 0]);
+  const [ratings, setRatings] = useState([0, 0, 0]);
   const [selectedGuess, setSelectedGuess] = useState<string | null>(null);
 
   const me = state.players.find((p) => p.id === state.myId);
   const hasSubmittedAnswer = me?.hasGuessed ?? false;
   const hasSubmittedRating = me?.hasRated ?? false;
+  const powerUpPoints = state.myPowerUpPoints ?? 50;
+  const bonusKeywordClaimed = state.bonusKeywordClaimed ?? [false, false, false];
+  const myKeywordRequestStatus = state.myKeywordRequestStatus ?? ['none', 'none', 'none'];
   const prevHasRated = useRef(me?.hasRated ?? false);
   const sketches = state.sketches;
   const rerateIndices = state.rerateSketchIndices ?? [];
@@ -64,7 +71,7 @@ export default function GuessingPhase({
           return next;
         });
       } else {
-        setRatings([0, 0, 0, 0]);
+        setRatings([0, 0, 0]);
       }
     }
     prevHasRated.current = me?.hasRated ?? false;
@@ -102,6 +109,41 @@ export default function GuessingPhase({
       return { data: liveDrawing.data, labels: liveDrawing.labels };
     }
     return { data: sketches[i].data, labels: [] };
+  };
+
+  const renderKeywordAction = (i: number) => {
+    if (!sketchesReadyForRating || !sketches[i].data || hasSubmittedRating || isRatingLocked(i)) {
+      return null;
+    }
+
+    const requestStatus = myKeywordRequestStatus[i];
+
+    if (requestStatus === 'fulfilled') {
+      return <p className="keyword-status-msg keyword-fulfilled-msg">{copy.guessingPhase.keywordUpdated}</p>;
+    }
+    if (requestStatus === 'pending') {
+      return <p className="keyword-status-msg keyword-pending-msg">{copy.guessingPhase.keywordPending}</p>;
+    }
+    if (bonusKeywordClaimed[i]) {
+      return <p className="keyword-status-msg">{copy.guessingPhase.keywordClaimed}</p>;
+    }
+    if (powerUpPoints < KEYWORD_REQUEST_COST) {
+      return (
+        <p className="keyword-status-msg keyword-insufficient-msg">
+          {copy.guessingPhase.keywordInsufficient(KEYWORD_REQUEST_COST, powerUpPoints)}
+        </p>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        className="btn-keyword-request"
+        onClick={() => onRequestKeyword(i)}
+      >
+        {copy.guessingPhase.requestKeyword(KEYWORD_REQUEST_COST)}
+      </button>
+    );
   };
 
   return (
@@ -167,6 +209,7 @@ export default function GuessingPhase({
               {locked && (
                 <p className="rating-locked-msg">{copy.guessingPhase.sketchNotRedrawn}</p>
               )}
+              <div className="keyword-powerup">{renderKeywordAction(i)}</div>
             </div>
             );
           })}
@@ -197,6 +240,7 @@ export default function GuessingPhase({
                   preload="metadata"
                 />
               )}
+              <span className="guess-title">{opt.title}</span>
             </button>
           ))}
         </div>

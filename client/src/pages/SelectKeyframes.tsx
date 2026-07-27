@@ -3,8 +3,6 @@ import GameHeader from '../components/GameHeader';
 import { copy } from '../copy';
 import type { RoomState } from '../types';
 
-const SELECTED_KEYFRAME_COUNT = 4;
-
 interface Props {
   state: RoomState;
   onSubmit: (indices: number[]) => void;
@@ -17,7 +15,7 @@ export default function SelectKeyframes({ state, onSubmit }: Props) {
   const toggle = (index: number) => {
     setSelected((prev) => {
       if (prev.includes(index)) return prev.filter((i) => i !== index);
-      if (prev.length >= SELECTED_KEYFRAME_COUNT) return prev;
+      if (prev.length >= 3) return prev;
       return [...prev, index];
     });
   };
@@ -46,8 +44,8 @@ export default function SelectKeyframes({ state, onSubmit }: Props) {
       </div>
       <div className="page-footer">
         <button
-          className={`btn-primary ${selected.length === SELECTED_KEYFRAME_COUNT ? '' : 'btn-disabled'}`}
-          disabled={selected.length !== SELECTED_KEYFRAME_COUNT}
+          className={`btn-primary ${selected.length === 3 ? '' : 'btn-disabled'}`}
+          disabled={selected.length !== 3}
           onClick={() => onSubmit(selected)}
         >
           {copy.selectKeyframes.finishSelecting}

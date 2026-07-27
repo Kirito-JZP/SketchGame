@@ -21,8 +21,8 @@ npm run dev
 
 1. **Home** — Start game or share an invite link with friends
 2. **Waiting Room** — Host starts when 2+ players join
-3. **Role Reveal** — First joiner is Drawer; others are Guessers (shown for 5 seconds)
-4. **Drawing Phase** — Drawer watches clip, picks 4 keyframes, sketches each
+3. **Role Selection** — Roles assigned by join order (first joiner is drawer)
+4. **Drawing Phase** — Drawer watches clip, picks 3 keyframes, sketches each
 5. **Guessing Phase** — Guessers watch live sketches, rate drawings, guess the movie
 6. **Round Results** — Scores calculated, vote to continue or exit
 
